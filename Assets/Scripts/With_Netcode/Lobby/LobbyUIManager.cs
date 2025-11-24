@@ -28,6 +28,10 @@ public class LobbyUIManager : MonoBehaviour
     [SerializeField] private GameObject playerCardPrefab;
     private Dictionary<ulong, GameObject> playerCardInstances = new Dictionary<ulong, GameObject>();
 
+    [Header("Perfil de Jugador (Ver)")]
+    // Panel emergente para ver la información de un jugador al pulsar en su tarjeta
+    [SerializeField] private PlayerInfoPopup playerInfoPopup;
+
     [Header("Chat (público)")]
     [SerializeField] private GameObject publicChatPanel;
     [SerializeField] private TMP_InputField chatInputField;
@@ -428,6 +432,33 @@ public class LobbyUIManager : MonoBehaviour
                 }
             }
         }
+
+        // Configurar el botón de perfil (si existe) para mostrar información detallada
+        // Debes añadir un botón llamado "ProfileButton" dentro del prefab playerCardPrefab
+        var profileBtnTransform = cardInstance.transform.Find("ProfileButton");
+        if (profileBtnTransform != null)
+        {
+            var profileBtn = profileBtnTransform.GetComponent<Button>();
+            if (profileBtn != null)
+            {
+                // Remover listeners previos para evitar múltiples suscripciones
+                profileBtn.onClick.RemoveAllListeners();
+                // Capturar copia del PlayerData para la clausura
+                PlayerData capturedPlayer = player;
+                profileBtn.onClick.AddListener(() => OnViewPlayerProfileClicked(capturedPlayer));
+            }
+        }
+        else
+        {
+            // Si no hay un botón específico, intenta usar el Button del propio cardInstance
+            var cardBtn = cardInstance.GetComponent<Button>();
+            if (cardBtn != null)
+            {
+                cardBtn.onClick.RemoveAllListeners();
+                PlayerData capturedPlayer2 = player;
+                cardBtn.onClick.AddListener(() => OnViewPlayerProfileClicked(capturedPlayer2));
+            }
+        }
     }
 
     private void UpdateLobbyControls(PlayerData localPlayer, int readyCount, bool localPlayerFound)
@@ -573,6 +604,20 @@ public class LobbyUIManager : MonoBehaviour
         {
             UiGameManager.Instance.GoToLobbySelection();
         }
+    }
+
+    /// <summary>
+    /// Se llama al pulsar el botón de perfil en una tarjeta de jugador para ver sus datos.
+    /// Muestra el popup de información.
+    /// </summary>
+    private void OnViewPlayerProfileClicked(PlayerData player)
+    {
+        if (playerInfoPopup == null)
+        {
+            Debug.LogWarning("LobbyUIManager: playerInfoPopup no está asignado en el inspector.");
+            return;
+        }
+        playerInfoPopup.Show(player);
     }
 
     // =====================================================================

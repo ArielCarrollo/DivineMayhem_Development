@@ -183,7 +183,7 @@ public class GameManager : NetworkBehaviour
 
         if (found)
         {
-            
+
         }
     }
 
@@ -235,6 +235,35 @@ public class GameManager : NetworkBehaviour
             {
                 PlayerData updatedPlayer = PlayersInLobby[i];
                 updatedPlayer.Username = new FixedString64Bytes(newName);
+                PlayersInLobby[i] = updatedPlayer;
+                break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Actualiza en el servidor los datos de perfil (descripción, fecha, estado e imagen predefinida) para el jugador que realiza la llamada.
+    /// Esto hará que se sincronicen con todos los clientes a través de la NetworkList.
+    /// </summary>
+    [Rpc(SendTo.Server)]
+    public void UpdatePlayerProfileDataServerRpc(string description, string birthDate, string status, string profileImageKey, RpcParams rpcParams = default)
+    {
+        ulong clientId = rpcParams.Receive.SenderClientId;
+        for (int i = 0; i < PlayersInLobby.Count; i++)
+        {
+            if (PlayersInLobby[i].ClientId == clientId)
+            {
+                PlayerData updatedPlayer = PlayersInLobby[i];
+                if (description != null)
+                    updatedPlayer.Description = new FixedString512Bytes(description);
+                if (birthDate != null)
+                    updatedPlayer.BirthDate = new FixedString32Bytes(birthDate);
+                if (status != null)
+                    updatedPlayer.Status = new FixedString128Bytes(status);
+                if (profileImageKey != null)
+                    updatedPlayer.ProfileImageKey = new FixedString64Bytes(profileImageKey);
+                // Al editar perfil asumimos que ya no es anónimo
+                updatedPlayer.IsAnonymous = false;
                 PlayersInLobby[i] = updatedPlayer;
                 break;
             }

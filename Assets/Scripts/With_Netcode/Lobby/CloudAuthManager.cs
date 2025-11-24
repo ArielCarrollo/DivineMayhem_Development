@@ -6,6 +6,7 @@ using Unity.Collections;
 using Unity.Services.Authentication.PlayerAccounts;
 using Unity.Services.Authentication;
 using Unity.Services.CloudSave;
+using Unity.Services.CloudSave.Models; // <-- NUEVO using
 using Unity.Services.Core;
 using Unity.Services.Core.Environments;
 using UnityEngine;
@@ -20,8 +21,17 @@ public class CloudAuthManager : MonoBehaviour
 
     public PlayerData LocalPlayerData { get; private set; }
     private const string PLAYER_PROGRESS_KEY = "PLAYER_PROGRESS_DATA";
+    // Clave para almacenar la imagen de perfil en formato base64 en Cloud Save
+    private const string PLAYER_PROFILE_IMAGE_KEY = "PLAYER_PROFILE_IMAGE";
     private string playerId;
     private string playerName;
+
+    // Base64 de la imagen de perfil cargada desde Cloud Save
+    public string LocalProfileImageBase64 { get; private set; } = string.Empty;
+
+    // Indicador de si el jugador actual usó login anónimo
+    // Se delega a LocalPlayerData.IsAnonymous, pero se mantiene para compatibilidad
+    public bool IsAnonymousUser => LocalPlayerData.IsAnonymous;
 
     private void Awake()
     {
@@ -63,12 +73,16 @@ public class CloudAuthManager : MonoBehaviour
             await AuthenticationService.Instance.SignUpWithUsernamePasswordAsync(username, password);
 
             playerId = AuthenticationService.Instance.PlayerId;
-            playerName = username; 
+            playerName = username;
 
             Debug.Log($"Sign Up & Sign In Successful. Player ID: {playerId}, Player Name: {playerName}");
 
             await UpdatePlayerNameAsync(username);
-            LocalPlayerData = new PlayerData(0, username); 
+            LocalPlayerData = new PlayerData(0, username);
+            // Como es un registro con usuario/contraseña, no es anónimo
+            var tmpData = LocalPlayerData;
+            tmpData.IsAnonymous = false;
+            LocalPlayerData = tmpData;
             await SavePlayerProgress();
             OnSignInSuccess?.Invoke();
         }
@@ -149,6 +163,15 @@ public class CloudAuthManager : MonoBehaviour
 
             Debug.Log($"Sign In Successful. Player ID: {playerId}, Player Name: {playerName}");
             await LoadPlayerProgress();
+
+            // Marcar que no es anónimo
+            if (LocalPlayerData.IsAnonymous)
+            {
+                var tmp = LocalPlayerData;
+                tmp.IsAnonymous = false;
+                UpdateLocalData(tmp);
+                await SavePlayerProgress();
+            }
 
             // ✅ aquí sin "!= null"
             if (LocalPlayerData.Username.Length == 0 && !string.IsNullOrWhiteSpace(playerName))
@@ -236,6 +259,15 @@ public class CloudAuthManager : MonoBehaviour
                 UpdateLocalData(tmp);
             }
 
+
+            // Marcar como anónimo
+            if (!LocalPlayerData.IsAnonymous)
+            {
+                var tmp = LocalPlayerData;
+                tmp.IsAnonymous = true;
+                UpdateLocalData(tmp);
+            }
+
             // Guardamos por si acaso
             await SavePlayerProgress();
 
@@ -270,29 +302,49 @@ public class CloudAuthManager : MonoBehaviour
     }
     public async Task LoadPlayerProgress()
     {
+        // Usaremos una variable fuera del try para tener acceso después
+        Dictionary<string, Item> serverData = null; // <-- AQUÍ EL CAMBIO
+
         try
         {
-            var serverData = await CloudSaveService.Instance.Data.Player
-                .LoadAsync(new HashSet<string> { PLAYER_PROGRESS_KEY });
+            // Solicitamos también la clave de imagen de perfil
+            serverData = await CloudSaveService.Instance.Data.Player
+                .LoadAsync(new HashSet<string> { PLAYER_PROGRESS_KEY, PLAYER_PROFILE_IMAGE_KEY });
 
             if (serverData.TryGetValue(PLAYER_PROGRESS_KEY, out var data))
             {
                 string jsonData = data.Value.GetAs<string>();
-
-                // 👇 primero deserializamos a una variable normal
-                var loaded = JsonConvert.DeserializeObject<PlayerData>(jsonData);
-                Debug.Log("Datos del jugador cargados desde la nube.");
-
-                // 👇 si el JSON venía sin nombre, lo reinyectamos del Auth
-                string authName = GetPlayerName();
-                if (loaded.Username.Length == 0 && !string.IsNullOrWhiteSpace(authName))
+                // Deserializamos el JSON a SerializablePlayerData
+                SerializablePlayerData loadedSerializable = null;
+                try
                 {
-                    loaded.Username = new Unity.Collections.FixedString64Bytes(authName);
-                    Debug.Log($"CloudAuthManager: nombre reinyectado desde Auth: {authName}");
+                    loadedSerializable = JsonConvert.DeserializeObject<SerializablePlayerData>(jsonData);
                 }
-
-                // 👇 AHORA sí lo guardo en la propiedad
-                LocalPlayerData = loaded;
+                catch (Exception ex)
+                {
+                    Debug.LogError($"Error al deserializar datos de Cloud Save: {ex}");
+                }
+                if (loadedSerializable != null)
+                {
+                    Debug.Log("Datos del jugador cargados desde la nube.");
+                    // Convertimos a PlayerData usando ClientId 0 (se actualizará al entrar en la lobby)
+                    var loadedPlayer = loadedSerializable.ToPlayerData(0);
+                    // Si no viene nombre, lo reinyectamos desde el auth
+                    string authName = GetPlayerName();
+                    if (loadedPlayer.Username.Length == 0 && !string.IsNullOrWhiteSpace(authName))
+                    {
+                        loadedPlayer.Username = new Unity.Collections.FixedString64Bytes(authName);
+                        Debug.Log($"CloudAuthManager: nombre reinyectado desde Auth: {authName}");
+                    }
+                    LocalPlayerData = loadedPlayer;
+                }
+                else
+                {
+                    Debug.LogError("No se pudo deserializar los datos del jugador. Generando datos por defecto.");
+                    string authName = GetPlayerName();
+                    LocalPlayerData = new PlayerData(0,
+                        string.IsNullOrWhiteSpace(authName) ? "Player" : authName);
+                }
             }
             else
             {
@@ -309,6 +361,31 @@ public class CloudAuthManager : MonoBehaviour
             string authName = GetPlayerName();
             LocalPlayerData = new PlayerData(0,
                 string.IsNullOrWhiteSpace(authName) ? "Player" : authName);
+        }
+
+        // Cargar imagen de perfil base64 si existe
+        if (serverData != null)
+        {
+            try
+            {
+                if (serverData.TryGetValue(PLAYER_PROFILE_IMAGE_KEY, out var imgData))
+                {
+                    LocalProfileImageBase64 = imgData.Value.GetAs<string>();
+                }
+                else
+                {
+                    LocalProfileImageBase64 = string.Empty;
+                }
+            }
+            catch
+            {
+                LocalProfileImageBase64 = string.Empty;
+            }
+        }
+        else
+        {
+            // Si no hubo respuesta de la nube, reseteamos la imagen
+            LocalProfileImageBase64 = string.Empty;
         }
     }
     private async void OnUnityPlayerAccountSignedIn()
@@ -333,6 +410,15 @@ public class CloudAuthManager : MonoBehaviour
                 var tmp = LocalPlayerData;
                 tmp.Username = new FixedString64Bytes(playerName);
                 UpdateLocalData(tmp);
+            }
+
+            // Al usar cuenta de Unity dejamos de ser anónimos
+            if (LocalPlayerData.IsAnonymous)
+            {
+                var tmp = LocalPlayerData;
+                tmp.IsAnonymous = false;
+                UpdateLocalData(tmp);
+                await SavePlayerProgress();
             }
 
             OnSignInSuccess?.Invoke();
@@ -364,14 +450,46 @@ public class CloudAuthManager : MonoBehaviour
     {
         try
         {
-            string jsonData = JsonConvert.SerializeObject(LocalPlayerData);
-            var dataToSave = new Dictionary<string, object> { { PLAYER_PROGRESS_KEY, jsonData } };
+            // Serializamos LocalPlayerData a SerializablePlayerData para evitar problemas con FixedString
+            var serializable = new SerializablePlayerData(LocalPlayerData);
+            string jsonData = JsonConvert.SerializeObject(serializable);
+            var dataToSave = new Dictionary<string, object>
+            {
+                { PLAYER_PROGRESS_KEY, jsonData }
+            };
+            // Siempre guardamos la imagen de perfil, aunque sea una cadena vacía. Esto evita persistir datos antiguos.
+            dataToSave[PLAYER_PROFILE_IMAGE_KEY] = LocalProfileImageBase64 ?? string.Empty;
+
             await CloudSaveService.Instance.Data.Player.SaveAsync(dataToSave);
-            Debug.Log("Progreso del jugador guardado en la nube.");
+            Debug.Log("Progreso del jugador y foto de perfil guardados en la nube.");
         }
         catch (Exception e)
         {
             Debug.LogError("Error al guardar el progreso del jugador: " + e);
+        }
+    }
+
+    /// <summary>
+    /// Actualiza la imagen de perfil del jugador en memoria y la persiste en Cloud Save.
+    /// </summary>
+    /// <param name="base64">Cadena base64 que representa la imagen. Si es nula, se guardará como cadena vacía.</param>
+    public async Task UpdatePlayerProfileImage(string base64)
+    {
+        // Guardar en la propiedad local
+        LocalProfileImageBase64 = base64 ?? string.Empty;
+        try
+        {
+            // Guardar únicamente la imagen de perfil para no sobrescribir otros datos
+            var data = new Dictionary<string, object>
+            {
+                { PLAYER_PROFILE_IMAGE_KEY, LocalProfileImageBase64 }
+            };
+            await CloudSaveService.Instance.Data.Player.SaveAsync(data);
+            Debug.Log("Imagen de perfil actualizada en Cloud Save.");
+        }
+        catch (Exception e)
+        {
+            Debug.LogError("Error al guardar la imagen de perfil: " + e);
         }
     }
     public void SignOutIfSignedIn()
@@ -391,4 +509,25 @@ public class CloudAuthManager : MonoBehaviour
     }
     public string GetPlayerName() => playerName;
     public string GetPlayerId() => playerId;
+
+    /// <summary>
+    /// Actualiza los campos de perfil del jugador local y guarda los datos en la nube.
+    /// Los parámetros nulos indican que no se debe modificar ese campo.
+    /// </summary>
+    public async Task UpdatePlayerProfile(string description, string birthDate, string status, string profileImageKey)
+    {
+        var data = LocalPlayerData;
+        if (description != null)
+            data.Description = new FixedString512Bytes(description);
+        if (birthDate != null)
+            data.BirthDate = new FixedString32Bytes(birthDate);
+        if (status != null)
+            data.Status = new FixedString128Bytes(status);
+        if (profileImageKey != null)
+            data.ProfileImageKey = new FixedString64Bytes(profileImageKey);
+        // Al modificar perfil asumimos que ya no es anónimo si había información
+        data.IsAnonymous = false;
+        UpdateLocalData(data);
+        await SavePlayerProgress();
+    }
 }

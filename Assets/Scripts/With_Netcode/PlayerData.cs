@@ -2,7 +2,7 @@
 using Unity.Netcode;
 using System;
 
-[System.Serializable] 
+[System.Serializable]
 public struct PlayerData : INetworkSerializable, IEquatable<PlayerData>
 {
     public ulong ClientId;
@@ -16,6 +16,18 @@ public struct PlayerData : INetworkSerializable, IEquatable<PlayerData>
     public int EyesIndex;
     public int GlovesIndex;
 
+    // --- Campos adicionales para el perfil del jugador ---
+    // Descripción personal del jugador (hasta 512 caracteres).
+    public FixedString512Bytes Description;
+    // Fecha de cumpleaños en formato string (hasta 32 caracteres).
+    public FixedString32Bytes BirthDate;
+    // Estado personal del jugador (hasta 128 caracteres).
+    public FixedString128Bytes Status;
+    // Clave de imagen de perfil predefinida. Almacena un índice o identificador de la imagen.
+    public FixedString64Bytes ProfileImageKey;
+    // Indica si el jugador inició sesión de forma anónima. Sirve para deshabilitar opciones como el perfil.
+    public bool IsAnonymous;
+
     public PlayerData(ulong clientId, string username, bool isReady = false)
     {
         ClientId = clientId;
@@ -28,6 +40,13 @@ public struct PlayerData : INetworkSerializable, IEquatable<PlayerData>
         BodyIndex = 0;
         EyesIndex = 0;
         GlovesIndex = 0;
+
+        // Inicializar campos de perfil con valores por defecto
+        Description = new FixedString512Bytes("");
+        BirthDate = new FixedString32Bytes("");
+        Status = new FixedString128Bytes("");
+        ProfileImageKey = new FixedString64Bytes("0");
+        IsAnonymous = false;
     }
 
     public void NetworkSerialize<T>(BufferSerializer<T> serializer) where T : IReaderWriter
@@ -43,6 +62,13 @@ public struct PlayerData : INetworkSerializable, IEquatable<PlayerData>
         serializer.SerializeValue(ref BodyIndex);
         serializer.SerializeValue(ref EyesIndex);
         serializer.SerializeValue(ref GlovesIndex);
+
+        // Serializar campos adicionales del perfil
+        serializer.SerializeValue(ref Description);
+        serializer.SerializeValue(ref BirthDate);
+        serializer.SerializeValue(ref Status);
+        serializer.SerializeValue(ref ProfileImageKey);
+        serializer.SerializeValue(ref IsAnonymous);
     }
 
     public bool Equals(PlayerData other)
@@ -54,6 +80,12 @@ public struct PlayerData : INetworkSerializable, IEquatable<PlayerData>
                CurrentXP == other.CurrentXP &&   // --- Añadido a la comparación ---
                BodyIndex == other.BodyIndex &&
                EyesIndex == other.EyesIndex &&
-               GlovesIndex == other.GlovesIndex;
+               GlovesIndex == other.GlovesIndex &&
+               // Comparar campos adicionales del perfil
+               Description == other.Description &&
+               BirthDate == other.BirthDate &&
+               Status == other.Status &&
+               ProfileImageKey == other.ProfileImageKey &&
+               IsAnonymous == other.IsAnonymous;
     }
 }
