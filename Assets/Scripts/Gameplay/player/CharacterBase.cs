@@ -96,7 +96,7 @@ public abstract class CharacterBase : NetworkBehaviour
     public override void OnNetworkSpawn()
     {
         base.OnNetworkSpawn(); // ¡Siempre primero!
-
+        SetInputActive(true);
         transform.rotation = Quaternion.Euler(0, 90, 0);
 
         if (IsServer)
@@ -170,30 +170,58 @@ public abstract class CharacterBase : NetworkBehaviour
             Debug.LogError($"[Player {OwnerClientId}] ¡UIManager NULL al intentar registrarse!");
     }
     [ClientRpc]
+    public void TeleportPlayerClientRpc(Vector3 newPosition)
+    {
+        // 1. Desactivar física momentáneamente para evitar conflictos
+        if (rb != null)
+        {
+            rb.isKinematic = true;
+            rb.linearVelocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+        }
+
+        // 2. Mover el objeto (Transform)
+        transform.position = newPosition;
+        // Opcional: Rotarlo
+        transform.rotation = Quaternion.Euler(0, 90, 0);
+
+        // 3. Reactivar física
+        if (rb != null)
+        {
+            rb.isKinematic = false;
+        }
+
+        // 4. Reactivar controles y resetear estado
+        SetInputActive(true); // ¡Esto te devuelve el movimiento!
+
+        // (Solo visual) Asegurar que la animación esté en Idle
+        if (animator) animator.Play("Idle"); // O el nombre de tu estado base
+    }
+
+    // Función auxiliar para el Servidor
+    public void ServerTeleport(Vector3 newPosition)
+    {
+        // Reseteamos estado lógico en el servidor
+        CurrentState.Value = PlayerState.Normal;
+        IsKing.Value = false;
+
+        // Ordenamos a TODOS los clientes (incluido el host) que muevan visualmente al jugador
+        TeleportPlayerClientRpc(newPosition);
+    }
+    [ClientRpc]
     public void KillPlayerClientRpc()
     {
-        // Aquí decides cómo "muere" visualmente.
-        // Opción A: Desactivar el objeto entero (Cuidado, puede romper RPCs si eres el host)
-        // gameObject.SetActive(false); 
+       
+        SetInputActive(false);
 
-        // Opción B (Mejor): Desactivar visuales y colisiones, pero dejar el script vivo
-        SetInputActive(false); // Congelar
-
-        // Desactivar collider para que no golpee a otros fantasma
         GetComponent<Collider>().enabled = false;
         rb.isKinematic = true; // Que no caiga al infinito
 
-        // Ocultar modelo 3D (asumiendo que tienes un hijo con el modelo)
-        // transform.GetChild(0).gameObject.SetActive(false); 
-
-        // O simplemente moverlo a una "zona de espectadores" lejos
-        // transform.position = new Vector3(0, 100, 0);
     }
     private void OnKingStatusChanged(bool previousValue, bool newValue)
     {
         if (crownVisual != null)
         {
-            // Simplemente activa o desactiva el objeto visual de la corona.
             crownVisual.SetActive(newValue);
         }
     }
@@ -201,14 +229,12 @@ public abstract class CharacterBase : NetworkBehaviour
     {
         controlsEnabled = isActive;
 
-        // Si desactivamos, frenamos al personaje en seco
         if (!isActive && rb != null)
         {
             rb.linearVelocity = Vector3.zero;
             rb.angularVelocity = Vector3.zero;
             serverMoveInput = 0; // Resetear input del servidor
 
-            // Opcional: Poner animación de Idle
             if (animator) animator.SetFloat("Speed", 0);
         }
     }

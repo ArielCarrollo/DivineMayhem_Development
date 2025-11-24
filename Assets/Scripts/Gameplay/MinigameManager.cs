@@ -39,7 +39,10 @@ public class MinigameManager : NetworkBehaviour
     private NetworkVariable<int> playersReadyCount = new NetworkVariable<int>(0);
 
     private Dictionary<ulong, CharacterBase> playerList = new Dictionary<ulong, CharacterBase>();
-
+    [Header("Sistema de Mapas (Sin cambio de escena)")]
+    [SerializeField] private GameObject mapCorona; // Arrastra el objeto Map_Corona
+    [SerializeField] private GameObject mapLava;   // Arrastra el objeto Map_Lava
+    [SerializeField] private Transform[] lavaSpawnPoints;
     private void Awake()
     {
         if (Instance != null) { Destroy(gameObject); }
@@ -143,6 +146,16 @@ public class MinigameManager : NetworkBehaviour
 
     private IEnumerator PointAwardCoroutine()
     {
+        Debug.Log("MinigameManager: Esperando a que haya al menos 2 jugadores...");
+
+        // Mientras haya menos de 2 clientes conectados, esperamos.
+        while (NetworkManager.Singleton.ConnectedClients.Count < 2)
+        {
+            yield return new WaitForSeconds(1.0f); // Revisa cada segundo
+        }
+
+        Debug.Log("MinigameManager: ¡Jugadores listos! Comienza la puntuación.");
+
         while (!isGameEnded)
         {
             yield return new WaitForSeconds(1.0f);
@@ -206,14 +219,11 @@ public class MinigameManager : NetworkBehaviour
     [ClientRpc]
     private void ShowIntermissionClientRpc()
     {
-        // 1. INTENTO DE RECUPERACIÓN: Si la referencia se perdió, búscala.
         if (intermissionPanel == null)
         {
-            // El 'true' dentro del paréntesis es vital: significa "busca incluso si está desactivado"
             intermissionPanel = FindObjectOfType<IntermissionUI>(true);
         }
 
-        // 2. VERIFICACIÓN Y ACTIVACIÓN
         if (intermissionPanel != null)
         {
             Debug.Log("CLIENTE: ¡Panel encontrado y activado!");
@@ -222,13 +232,11 @@ public class MinigameManager : NetworkBehaviour
         else
         {
             Debug.LogError("CLIENTE: ¡SOCORRO! No encuentro el 'PanelResultados' en la escena.");
-            return; // Si no hay panel, no podemos seguir
+            return; 
         }
 
-        // B. Ocultar HUD del Juego
         if (UIManager.Instance != null) UIManager.Instance.SetGameHUDActive(false);
 
-        // C. Congelar al Jugador Local
         var localPlayer = NetworkManager.Singleton.LocalClient.PlayerObject;
         if (localPlayer != null && localPlayer.TryGetComponent<CharacterBase>(out var character))
         {
@@ -243,17 +251,58 @@ public class MinigameManager : NetworkBehaviour
     private void PlayerReadyServerRpc(ServerRpcParams rpcParams = default)
     {
         playersReadyCount.Value++;
-        
         Debug.Log($"Jugadores listos: {playersReadyCount}");
 
         int totalPlayers = NetworkManager.Singleton.ConnectedClients.Count;
 
         if (playersReadyCount.Value >= totalPlayers)
         {
-            Debug.Log("¡Todos listos! Cargando siguiente nivel...");
-            NetworkManager.Singleton.SceneManager.LoadScene(nextSceneName, LoadSceneMode.Single);
+            Debug.Log("¡Todos listos! Cambiando al mapa de Lava...");
+
+            // EN LUGAR DE LOAD SCENE, LLAMAMOS A ESTO:
+            SwitchToLavaMap();
         }
     }
+    private void SwitchToLavaMap()
+    {
+        // 1. Apagar Mapa Viejo / Prender Nuevo (RPC para que todos lo vean)
+        ToggleMapsClientRpc();
+
+        // 2. Teletransportar a los Jugadores
+        int index = 0;
+        foreach (var client in NetworkManager.Singleton.ConnectedClientsList)
+        {
+            if (client.PlayerObject != null && client.PlayerObject.TryGetComponent<CharacterBase>(out var playerScript))
+            {
+                // Usamos el spawn point correspondiente (o el 0 si faltan)
+                Vector3 spawnPos = lavaSpawnPoints[index % lavaSpawnPoints.Length].position;
+
+                // Llamamos a la función nueva del CharacterBase
+                playerScript.ServerTeleport(spawnPos);
+
+                index++;
+            }
+        }
+
+        // 3. Opcional: Iniciar la lógica del juego de Lava
+        // Aquí podrías activar el 'SurvivalGameManager' si lo tienes en la escena pero apagado.
+        // O simplemente cambiar el estado de este mismo Manager.
+    }
+
+    [ClientRpc]
+    private void ToggleMapsClientRpc()
+    {
+        // Esconder UI de resultados
+        if (intermissionPanel != null) intermissionPanel.gameObject.SetActive(false);
+
+        // Mostrar HUD de juego
+        if (UIManager.Instance != null) UIManager.Instance.SetGameHUDActive(true);
+
+        // Cambiar los mapas visualmente
+        if (mapCorona != null) mapCorona.SetActive(false);
+        if (mapLava != null) mapLava.SetActive(true);
+    }
+
     public int GetPlayerScore(ulong playerId)
     {
         // Busca al jugador en la lista de puntajes
