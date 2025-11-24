@@ -50,6 +50,10 @@ public class PlayerProfileUI : MonoBehaviour
     // Si se marca, en Android se desactiva el diálogo de selección de archivos y solo se rota entre imágenes predefinidas.
     [SerializeField] private bool androidMode = false;
 
+    // Flag para saber si el usuario ha cambiado la imagen predefinida usando el botón de rotación.
+    // Si está en true al guardar y no se seleccionó una imagen externa, se debe limpiar la imagen base64 almacenada.
+    private bool predefinedImageChanged = false;
+
     /// <summary>
     /// Convierte una textura a una cadena base64 tras escalarla y comprimirla como JPEG.
     /// Cloud Save tiene un límite de tamaño por elemento (~10 KB), por lo que reducimos
@@ -61,64 +65,46 @@ public class PlayerProfileUI : MonoBehaviour
     {
         if (original == null) return null;
 
-        // Intentamos varias resoluciones y calidades para ajustarnos al límite de Cloud Save (~10 KB por item).
-        // Empezamos con 128 px de lado mayor y calidad 80; si excede, reducimos a 64 px.
-        int[] candidateSizes = new int[] { 128, 64, 32 };
-        int[] candidateQualities = new int[] { 80, 60, 50 };
-        string bestBase64 = null;
-
-        foreach (int maxDimension in candidateSizes)
+        int maxDimension = 128;
+        int origWidth = original.width;
+        int origHeight = original.height;
+        int targetWidth = origWidth;
+        int targetHeight = origHeight;
+        // Calcular escala conservando la relación de aspecto
+        float maxOrigDim = Mathf.Max(origWidth, origHeight);
+        if (maxOrigDim > maxDimension)
         {
-            foreach (int quality in candidateQualities)
-            {
-                int origWidth = original.width;
-                int origHeight = original.height;
-                int targetWidth = origWidth;
-                int targetHeight = origHeight;
-                float maxOrigDim = Mathf.Max(origWidth, origHeight);
-                if (maxOrigDim > maxDimension)
-                {
-                    float ratio = (float)maxDimension / maxOrigDim;
-                    targetWidth = Mathf.Max(1, Mathf.RoundToInt(origWidth * ratio));
-                    targetHeight = Mathf.Max(1, Mathf.RoundToInt(origHeight * ratio));
-                }
-
-                // Escalar
-                RenderTexture rt = RenderTexture.GetTemporary(targetWidth, targetHeight);
-                Graphics.Blit(original, rt);
-                RenderTexture previous = RenderTexture.active;
-                RenderTexture.active = rt;
-                Texture2D resized = new Texture2D(targetWidth, targetHeight, TextureFormat.RGB24, false);
-                resized.ReadPixels(new Rect(0, 0, targetWidth, targetHeight), 0, 0);
-                resized.Apply();
-                RenderTexture.active = previous;
-                RenderTexture.ReleaseTemporary(rt);
-
-                // Comprimir a JPG
-                byte[] jpgBytes;
-                try
-                {
-                    jpgBytes = resized.EncodeToJPG(quality);
-                }
-                catch
-                {
-                    jpgBytes = resized.EncodeToPNG();
-                }
-                string b64 = Convert.ToBase64String(jpgBytes);
-                // Si es menor a 8.5KB, lo consideramos adecuado
-                if (b64.Length < 8500)
-                {
-                    return b64;
-                }
-                // Guardamos el mejor (más pequeño) para fallback
-                if (bestBase64 == null || b64.Length < bestBase64.Length)
-                {
-                    bestBase64 = b64;
-                }
-            }
+            float ratio = (float)maxDimension / maxOrigDim;
+            targetWidth = Mathf.Max(1, Mathf.RoundToInt(origWidth * ratio));
+            targetHeight = Mathf.Max(1, Mathf.RoundToInt(origHeight * ratio));
         }
-        // Si ninguna opción cabe dentro del límite aproximado, devolvemos la más pequeña
-        return bestBase64;
+
+        // Crear RenderTexture para escalar
+        RenderTexture rt = RenderTexture.GetTemporary(targetWidth, targetHeight);
+        Graphics.Blit(original, rt);
+        RenderTexture previous = RenderTexture.active;
+        RenderTexture.active = rt;
+        Texture2D resized = new Texture2D(targetWidth, targetHeight, TextureFormat.RGB24, false);
+        resized.ReadPixels(new Rect(0, 0, targetWidth, targetHeight), 0, 0);
+        resized.Apply();
+        RenderTexture.active = previous;
+        RenderTexture.ReleaseTemporary(rt);
+
+        // Comprimir a JPG para reducir tamaño
+        byte[] jpgBytes;
+        try
+        {
+            jpgBytes = resized.EncodeToJPG(80);
+        }
+        catch
+        {
+            // Si no se soporta EncodeToJPG en esta plataforma, usar PNG
+            jpgBytes = resized.EncodeToPNG();
+        }
+
+        // Convertir a base64
+        string base64 = Convert.ToBase64String(jpgBytes);
+        return base64;
     }
 
     /// <summary>
@@ -134,12 +120,24 @@ public class PlayerProfileUI : MonoBehaviour
         {
             profilePreviewImage.sprite = availableProfileImages[currentImageIndex];
         }
+
+        // Indicamos que el usuario ha cambiado de imagen predefinida
+        predefinedImageChanged = true;
     }
 
     private void Start()
     {
         // Inicializa UI con datos cargados
-        LoadCurrentProfileData();
+        // Al iniciar, intentamos recargar datos desde la nube. Si todavía no hay sesión, LoadPlayerProgress
+        // no devolverá nada y más adelante se actualizará vía OnSignInSuccess.
+        _ = ReloadDataFromCloudAsync();
+
+        // Suscribirnos al evento de inicio de sesión para refrescar la UI cuando el jugador se autentique
+        if (CloudAuthManager.Instance != null)
+        {
+            CloudAuthManager.Instance.OnSignInSuccess -= OnAuthSuccessReload;
+            CloudAuthManager.Instance.OnSignInSuccess += OnAuthSuccessReload;
+        }
 
         if (saveButton != null)
             saveButton.onClick.AddListener(OnSaveButtonClicked);
@@ -151,23 +149,48 @@ public class PlayerProfileUI : MonoBehaviour
             cycleImageButton.onClick.AddListener(OnCycleImageClicked);
     }
 
-    private async void OnEnable()
+    private void OnDestroy()
     {
-        // Cuando el panel se activa, recarga los datos desde Cloud Save antes de mostrarlos.
-        if (!gameObject.activeSelf)
-            return;
-
+        // Nos desuscribimos del evento para evitar referencias colgantes
         if (CloudAuthManager.Instance != null)
         {
-            try
+            CloudAuthManager.Instance.OnSignInSuccess -= OnAuthSuccessReload;
+        }
+    }
+
+    private void OnAuthSuccessReload()
+    {
+        // Al producirse un login correcto, recargamos los datos desde Cloud Save
+        _ = ReloadDataFromCloudAsync();
+    }
+
+    private void OnEnable()
+    {
+        // Cuando el panel se activa de nuevo, recarga los datos actuales y solicita datos a la nube.
+        if (gameObject.activeSelf)
+        {
+            _ = ReloadDataFromCloudAsync();
+        }
+    }
+
+    /// <summary>
+    /// Carga datos del jugador desde Cloud Save (si existe información) y después actualiza la interfaz con esos datos. 
+    /// Se utiliza un método separado para poder invocar funciones async en Start/OnEnable.
+    /// </summary>
+    private async Task ReloadDataFromCloudAsync()
+    {
+        try
+        {
+            if (CloudAuthManager.Instance != null)
             {
                 await CloudAuthManager.Instance.LoadPlayerProgress();
             }
-            catch (Exception e)
-            {
-                Debug.LogWarning($"No se pudo recargar los datos del jugador antes de mostrar el perfil: {e.Message}");
-            }
         }
+        catch (Exception ex)
+        {
+            Debug.LogError($"Error al cargar datos desde Cloud Save: {ex}");
+        }
+        // Actualizar la UI con los datos locales recién cargados
         LoadCurrentProfileData();
     }
 
@@ -244,45 +267,54 @@ public class PlayerProfileUI : MonoBehaviour
         string newStatus = statusField != null ? statusField.text : null;
         string newImageKey = currentImageIndex.ToString();
 
-        // Validación de la fecha de cumpleaños (permitir vacío o formato válido). Si es inválida, no se actualiza.
-        bool dateIsValid = true;
-        if (!string.IsNullOrEmpty(newDate))
-        {
-            if (!DateTime.TryParse(newDate, System.Globalization.CultureInfo.CurrentCulture, System.Globalization.DateTimeStyles.None, out _))
-            {
-                dateIsValid = false;
-            }
-        }
-
         if (CloudAuthManager.Instance != null)
         {
             feedbackText?.gameObject.SetActive(true);
             feedbackText?.SetText("Guardando...");
-            // Preparamos la fecha a guardar: si es inválida, la dejamos nula para mantener la anterior
-            string dateToUse = dateIsValid ? newDate : null;
-            // Actualiza datos básicos (descripción, fecha, estado, clave de imagen predefinida)
-            await CloudAuthManager.Instance.UpdatePlayerProfile(newDesc, dateToUse, newStatus, newImageKey);
 
-            // Gestión de la imagen de perfil: si se seleccionó una imagen externa, guardamos esa cadena base64.
-            // En caso contrario, si existe actualmente una base64 guardada y no hemos seleccionado una nueva,
-            // limpiamos la base64 para que se use la imagen predefinida elegida.
+            // Validar la fecha introducida. Si no es válida, conservamos la fecha actual almacenada en la nube
+            bool dateValid = true;
+            if (!string.IsNullOrWhiteSpace(newDate))
+            {
+                if (!DateTime.TryParse(newDate, out _))
+                {
+                    dateValid = false;
+                }
+            }
+            string dateToSave = dateValid ? newDate : CloudAuthManager.Instance.LocalPlayerData.BirthDate.ToString();
+
+            // Actualiza datos básicos (descripción, fecha, estado, clave de imagen predefinida) en Cloud Save
+            await CloudAuthManager.Instance.UpdatePlayerProfile(newDesc, dateToSave, newStatus, newImageKey);
+
+            // Determinar la cadena base64 reducida (para la red) a enviar a los demás jugadores
+            string imageBase64ToSend;
             if (newImageBase64 != null)
             {
+                // Si el jugador ha seleccionado una imagen externa, guardamos la nueva base64 completa. 
+                // CloudAuthManager se encargará de generar la versión reducida y asignarla a LocalPlayerData.ProfileImageBase64.
                 await CloudAuthManager.Instance.UpdatePlayerProfileImage(newImageBase64);
+                // Recuperamos la versión reducida recién generada para enviarla por la red
+                imageBase64ToSend = CloudAuthManager.Instance.LocalPlayerData.ProfileImageBase64.ToString();
                 newImageBase64 = null;
             }
-            else if (!string.IsNullOrEmpty(CloudAuthManager.Instance.LocalProfileImageBase64))
+            else
             {
-                // Solo limpiar si no se seleccionó nueva imagen externa
-                await CloudAuthManager.Instance.UpdatePlayerProfileImage(null);
+                // Si no hay una nueva imagen seleccionada, sólo limpiamos la imagen almacenada si el usuario ha rotado las predefinidas
+                if (predefinedImageChanged)
+                {
+                    // Al limpiar la imagen base64, se volverá a usar la imagen predefinida indicada por currentImageIndex
+                    await CloudAuthManager.Instance.UpdatePlayerProfileImage(null);
+                }
+                // Utilizamos la versión reducida actualmente almacenada en LocalPlayerData para enviar por la red
+                imageBase64ToSend = CloudAuthManager.Instance.LocalPlayerData.ProfileImageBase64.ToString();
             }
 
-            // Llamar RPC para actualizar datos en todos los clientes
+            // Llamar RPC para actualizar datos en todos los clientes, incluido el avatar personalizado en base64 reducido
             try
             {
                 if (GameManager.Instance != null)
                 {
-                    GameManager.Instance.UpdatePlayerProfileDataServerRpc(newDesc, dateIsValid ? newDate : null, newStatus, newImageKey);
+                    GameManager.Instance.UpdatePlayerProfileDataServerRpc(newDesc, dateToSave, newStatus, newImageKey, imageBase64ToSend);
                 }
             }
             catch (Exception ex)
@@ -297,25 +329,27 @@ public class PlayerProfileUI : MonoBehaviour
             }
             if (birthDateDisplay != null)
             {
-                birthDateDisplay.text = string.IsNullOrWhiteSpace(newDate) ? "Sin fecha" : newDate;
+                birthDateDisplay.text = string.IsNullOrWhiteSpace(dateToSave) ? "Sin fecha" : dateToSave;
             }
             if (statusDisplay != null)
             {
                 statusDisplay.text = string.IsNullOrWhiteSpace(newStatus) ? "Sin estado" : newStatus;
             }
 
-            // Mostrar mensaje según validez de la fecha
-            if (dateIsValid)
+            // Mostrar mensaje según validez de la fecha. Siempre se añade nota sobre tamaño de imagen
+            if (!dateValid)
             {
-                feedbackText?.SetText("Perfil guardado correctamente.");
+                feedbackText?.SetText("Datos inválidos: revisa la fecha de cumpleaños. Si la imagen es mayor a 256x256, esta podría no guardarse.");
             }
             else
             {
-                feedbackText?.SetText("Perfil guardado. La fecha ingresada es inválida y no se ha modificado.");
+                feedbackText?.SetText("Perfil guardado correctamente. Si la imagen es mayor a 256x256, esta podría no guardarse.");
             }
-
-            // recargar datos para reflejar posibles ajustes desde Cloud Save
+            // Recargar datos para reflejar posibles ajustes desde Cloud Save
             LoadCurrentProfileData();
+
+            // Reiniciar el indicador de cambio de imagen predefinida
+            predefinedImageChanged = false;
         }
     }
 

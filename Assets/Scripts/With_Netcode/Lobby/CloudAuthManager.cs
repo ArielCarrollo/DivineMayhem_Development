@@ -139,6 +139,21 @@ public class CloudAuthManager : MonoBehaviour
             await AuthenticationService.Instance.UpdatePlayerNameAsync(newName);
             this.playerName = newName;
             Debug.Log($"Nombre actualizado exitosamente a: {newName}");
+
+        // Actualizar también LocalPlayerData.Username y guardar en la nube. Esto garantiza
+        // que al volver a iniciar sesión se cargue el nombre correcto desde Cloud Save.
+        try
+        {
+            // Si LocalPlayerData está inicializado, actualizamos su nombre y guardamos.
+            var tmp = LocalPlayerData;
+            tmp.Username = new FixedString64Bytes(newName);
+            UpdateLocalData(tmp);
+            await SavePlayerProgress();
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"Error al guardar el nuevo nombre en PlayerData: {ex}");
+        }
             OnPlayerNameUpdated?.Invoke(newName);
         }
         catch (AuthenticationException ex)
@@ -387,6 +402,26 @@ public class CloudAuthManager : MonoBehaviour
             // Si no hubo respuesta de la nube, reseteamos la imagen
             LocalProfileImageBase64 = string.Empty;
         }
+
+        // Actualizar también el campo de PlayerData que se replica en red con la imagen base64 personalizada
+        try
+        {
+            var tmpPlayer = LocalPlayerData;
+            // Asegurarse de que la cadena no exceda el tamaño máximo del FixedString4096Bytes
+            // Convertir a un tamaño reducido para uso en la red. Esto previene excepciones de truncado
+            string networkB64 = ConvertBase64ToNetworkBase64(LocalProfileImageBase64);
+            // Truncar si excede el límite del FixedString
+            if (networkB64 != null && networkB64.Length > 4095)
+            {
+                networkB64 = networkB64.Substring(0, 4095);
+            }
+            tmpPlayer.ProfileImageBase64 = new FixedString4096Bytes(networkB64 ?? string.Empty);
+            UpdateLocalData(tmpPlayer);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"Error al asignar ProfileImageBase64 al PlayerData: {ex}");
+        }
     }
     private async void OnUnityPlayerAccountSignedIn()
     {
@@ -477,6 +512,23 @@ public class CloudAuthManager : MonoBehaviour
     {
         // Guardar en la propiedad local
         LocalProfileImageBase64 = base64 ?? string.Empty;
+        // Actualizar también el campo de PlayerData que se replica en red con la imagen base64
+        try
+        {
+            var tmp = LocalPlayerData;
+            // Convertir la imagen completa a una versión reducida para la red
+            string networkB64 = ConvertBase64ToNetworkBase64(LocalProfileImageBase64);
+            if (!string.IsNullOrEmpty(networkB64) && networkB64.Length > 4095)
+            {
+                networkB64 = networkB64.Substring(0, 4095);
+            }
+            tmp.ProfileImageBase64 = new FixedString4096Bytes(networkB64 ?? string.Empty);
+            UpdateLocalData(tmp);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"Error al actualizar ProfileImageBase64 en LocalPlayerData: {ex}");
+        }
         try
         {
             // Guardar únicamente la imagen de perfil para no sobrescribir otros datos
@@ -491,6 +543,100 @@ public class CloudAuthManager : MonoBehaviour
         {
             Debug.LogError("Error al guardar la imagen de perfil: " + e);
         }
+    }
+
+    /// <summary>
+    /// Convierte una textura en una cadena base64 comprimida adecuada para su envío por red.
+    /// Intenta varias combinaciones de tamaño y calidad para garantizar que la longitud resultante
+    /// no supere el límite del tipo FixedString4096Bytes (4096 caracteres).
+    /// Si ninguna combinación cumple, la cadena devuelta se trunca como último recurso.
+    /// </summary>
+    private string ConvertTextureToNetworkBase64(Texture2D original)
+    {
+        if (original == null) return string.Empty;
+
+        // Candidatos de dimensiones máximas (lado más grande) y calidades JPEG. Se probarán
+        // de mayor a menor resolución y calidad hasta que el base64 quepa en 4095 caracteres.
+        int[] dimensionCandidates = new int[] { 64, 48, 32, 16 };
+        int[] qualityCandidates = new int[] { 50, 40, 30, 20 };
+
+        // Almacena la última cadena generada para usarla como fallback en caso de que ninguna combinación
+        // cumpla el requisito. Inicialmente está vacía.
+        string lastBase64 = string.Empty;
+
+        foreach (int maxDim in dimensionCandidates)
+        {
+            // Calcular escala inicial según el mayor lado de la textura original
+            int origWidth = original.width;
+            int origHeight = original.height;
+            float maxOrigDim = Mathf.Max(origWidth, origHeight);
+            float ratio = maxOrigDim > maxDim ? (float)maxDim / maxOrigDim : 1f;
+            int targetWidth = Mathf.Max(1, Mathf.RoundToInt(origWidth * ratio));
+            int targetHeight = Mathf.Max(1, Mathf.RoundToInt(origHeight * ratio));
+
+            // Crear y poblar la RenderTexture para escalar la textura
+            RenderTexture rt = RenderTexture.GetTemporary(targetWidth, targetHeight);
+            Graphics.Blit(original, rt);
+            RenderTexture previous = RenderTexture.active;
+            RenderTexture.active = rt;
+            Texture2D resized = new Texture2D(targetWidth, targetHeight, TextureFormat.RGB24, false);
+            resized.ReadPixels(new Rect(0, 0, targetWidth, targetHeight), 0, 0);
+            resized.Apply();
+            RenderTexture.active = previous;
+            RenderTexture.ReleaseTemporary(rt);
+
+            // Probar distintas calidades de JPEG para este tamaño
+            foreach (int quality in qualityCandidates)
+            {
+                byte[] encodedBytes;
+                try
+                {
+                    encodedBytes = resized.EncodeToJPG(quality);
+                }
+                catch
+                {
+                    // Si EncodeToJPG no está disponible en esta plataforma, usamos PNG (más grande)
+                    encodedBytes = resized.EncodeToPNG();
+                }
+                string b64 = Convert.ToBase64String(encodedBytes);
+                lastBase64 = b64;
+                // Comprobamos si la longitud cabe en el límite (4095 caracteres, un margen de seguridad)
+                if (b64.Length <= 4095)
+                {
+                    return b64;
+                }
+            }
+        }
+        // Si ninguna combinación encaja, devolvemos la última cadena (que será la más pequeña generada)
+        // y truncamos para evitar la excepción. Este base64 truncado podría no ser decodificable, pero
+        // al menos no provocará error de asignación.
+        if (lastBase64 != null && lastBase64.Length > 4095)
+        {
+            return lastBase64.Substring(0, 4095);
+        }
+        return lastBase64 ?? string.Empty;
+    }
+
+    /// <summary>
+    /// Dada una cadena base64 que representa una imagen, la decodifica a una textura y genera una cadena base64 de menor tamaño
+    /// para la red. Devuelve una cadena vacía si no se puede procesar.
+    /// </summary>
+    private string ConvertBase64ToNetworkBase64(string base64)
+    {
+        if (string.IsNullOrEmpty(base64)) return string.Empty;
+        try
+        {
+            byte[] bytes = Convert.FromBase64String(base64);
+            Texture2D tex = new Texture2D(2, 2);
+            if (tex.LoadImage(bytes))
+            {
+                return ConvertTextureToNetworkBase64(tex);
+            }
+        }
+        catch
+        {
+        }
+        return string.Empty;
     }
     public void SignOutIfSignedIn()
     {

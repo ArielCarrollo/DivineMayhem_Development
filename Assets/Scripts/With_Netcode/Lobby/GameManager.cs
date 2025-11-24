@@ -6,6 +6,7 @@ using Unity.Collections;
 using Unity.Cinemachine;
 using System.Threading.Tasks;
 using System.Linq;
+using System;
 
 public class GameManager : NetworkBehaviour
 {
@@ -239,6 +240,23 @@ public class GameManager : NetworkBehaviour
                 break;
             }
         }
+
+        // Actualizar también el Nickname NetworkVariable en el objeto del jugador para que la UI se sincronice.
+        try
+        {
+            if (NetworkManager.Singleton.ConnectedClients.TryGetValue(clientId, out var client) && client.PlayerObject != null)
+            {
+                var nicknameUI = client.PlayerObject.GetComponentInChildren<PlayerNicknameUI>();
+                if (nicknameUI != null)
+                {
+                    nicknameUI.Nickname.Value = new FixedString64Bytes(newName);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"Error al actualizar Nickname NetworkVariable: {ex}");
+        }
     }
 
     /// <summary>
@@ -246,7 +264,7 @@ public class GameManager : NetworkBehaviour
     /// Esto hará que se sincronicen con todos los clientes a través de la NetworkList.
     /// </summary>
     [Rpc(SendTo.Server)]
-    public void UpdatePlayerProfileDataServerRpc(string description, string birthDate, string status, string profileImageKey, RpcParams rpcParams = default)
+    public void UpdatePlayerProfileDataServerRpc(string description, string birthDate, string status, string profileImageKey, string profileImageBase64, RpcParams rpcParams = default)
     {
         ulong clientId = rpcParams.Receive.SenderClientId;
         for (int i = 0; i < PlayersInLobby.Count; i++)
@@ -262,6 +280,11 @@ public class GameManager : NetworkBehaviour
                     updatedPlayer.Status = new FixedString128Bytes(status);
                 if (profileImageKey != null)
                     updatedPlayer.ProfileImageKey = new FixedString64Bytes(profileImageKey);
+                // Actualizar la imagen de perfil personalizada en base64
+                if (profileImageBase64 != null)
+                    updatedPlayer.ProfileImageBase64 = new FixedString4096Bytes(profileImageBase64);
+                else
+                    updatedPlayer.ProfileImageBase64 = new FixedString4096Bytes("");
                 // Al editar perfil asumimos que ya no es anónimo
                 updatedPlayer.IsAnonymous = false;
                 PlayersInLobby[i] = updatedPlayer;

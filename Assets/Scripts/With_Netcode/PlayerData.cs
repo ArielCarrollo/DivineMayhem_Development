@@ -25,6 +25,9 @@ public struct PlayerData : INetworkSerializable, IEquatable<PlayerData>
     public FixedString128Bytes Status;
     // Clave de imagen de perfil predefinida. Almacena un índice o identificador de la imagen.
     public FixedString64Bytes ProfileImageKey;
+    // Contiene la imagen de perfil personalizada en formato base64 comprimido y reducido.
+    // Esta cadena se replica a través de la red para que otros jugadores puedan ver el avatar importado.
+    public FixedString4096Bytes ProfileImageBase64;
     // Indica si el jugador inició sesión de forma anónima. Sirve para deshabilitar opciones como el perfil.
     public bool IsAnonymous;
 
@@ -47,6 +50,9 @@ public struct PlayerData : INetworkSerializable, IEquatable<PlayerData>
         Status = new FixedString128Bytes("");
         ProfileImageKey = new FixedString64Bytes("0");
         IsAnonymous = false;
+
+        // Inicializar la base64 de imagen personalizada vacía
+        ProfileImageBase64 = new FixedString4096Bytes("");
     }
 
     public void NetworkSerialize<T>(BufferSerializer<T> serializer) where T : IReaderWriter
@@ -69,6 +75,8 @@ public struct PlayerData : INetworkSerializable, IEquatable<PlayerData>
         serializer.SerializeValue(ref Status);
         serializer.SerializeValue(ref ProfileImageKey);
         serializer.SerializeValue(ref IsAnonymous);
+        // Serializar la imagen de perfil en base64
+        serializer.SerializeValue(ref ProfileImageBase64);
     }
 
     public bool Equals(PlayerData other)
@@ -86,6 +94,7 @@ public struct PlayerData : INetworkSerializable, IEquatable<PlayerData>
                BirthDate == other.BirthDate &&
                Status == other.Status &&
                ProfileImageKey == other.ProfileImageKey &&
-               IsAnonymous == other.IsAnonymous;
+               IsAnonymous == other.IsAnonymous &&
+               ProfileImageBase64 == other.ProfileImageBase64;
     }
 }

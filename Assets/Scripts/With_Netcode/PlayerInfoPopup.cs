@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using System;
 
 /// <summary>
 /// Panel que muestra la información de perfil de un jugador en el lobby.
@@ -50,21 +51,50 @@ public class PlayerInfoPopup : MonoBehaviour
         }
 
         // Elegir la imagen a mostrar
-        Sprite chosen = defaultProfileImage;
-        string key = data.ProfileImageKey.ToString();
-        if (!string.IsNullOrEmpty(key))
+        // Primero comprobamos si el jugador tiene una imagen personalizada en base64
+        bool loadedBase64 = false;
+        string base64String = data.ProfileImageBase64.ToString();
+        if (!string.IsNullOrEmpty(base64String))
         {
-            // si es un índice numérico, lo usamos para la lista predefinida
-            if (int.TryParse(key, out int idx))
+            try
             {
-                if (availableProfileImages != null && idx >= 0 && idx < availableProfileImages.Length)
+                byte[] bytes = Convert.FromBase64String(base64String);
+                Texture2D tex = new Texture2D(2, 2);
+                if (tex.LoadImage(bytes))
                 {
-                    chosen = availableProfileImages[idx];
+                    Sprite customSprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f));
+                    if (profileImage != null)
+                    {
+                        profileImage.sprite = customSprite;
+                    }
+                    loadedBase64 = true;
                 }
             }
+            catch
+            {
+                loadedBase64 = false;
+            }
         }
-        if (profileImage != null && chosen != null)
-            profileImage.sprite = chosen;
+
+        // Si no hay imagen personalizada o hubo error, usar las predefinidas
+        if (!loadedBase64)
+        {
+            Sprite chosen = defaultProfileImage;
+            string key = data.ProfileImageKey.ToString();
+            if (!string.IsNullOrEmpty(key))
+            {
+                // si es un índice numérico, lo usamos para la lista predefinida
+                if (int.TryParse(key, out int idx))
+                {
+                    if (availableProfileImages != null && idx >= 0 && idx < availableProfileImages.Length)
+                    {
+                        chosen = availableProfileImages[idx];
+                    }
+                }
+            }
+            if (profileImage != null && chosen != null)
+                profileImage.sprite = chosen;
+        }
     }
 
     /// <summary>
