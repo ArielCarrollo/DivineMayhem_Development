@@ -66,9 +66,7 @@ public class PlayerUIPortrait : MonoBehaviour
 
         int currentScore = MinigameManager.Instance.GetPlayerScore(myPlayerId);
 
-        // Debug para ver si la UI recibe el dato
-        Debug.Log($"UI (Player {myPlayerId}): Actualizando texto a {currentScore}");
-
+        Debug.Log($"UI (Retrato del Player {myPlayerId}): Tiene {currentScore} puntos.");
         scoreText.text = "Puntos: " + currentScore.ToString();
 
         // Truco: Forzar actualización visual por si acaso

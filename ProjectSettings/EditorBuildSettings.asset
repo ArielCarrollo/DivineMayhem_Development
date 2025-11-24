@@ -17,6 +17,12 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/GameVegui.unity
     guid: 194774b13ecaf1a48be4c55c9ca20eab
+  - enabled: 1
+    path: Assets/Scenes/Escene Beta.unity
+    guid: 46bd891766827c54aae69ccf4675cf8f
+  - enabled: 1
+    path: Assets/Scenes/Escene Beta 3.unity
+    guid: eecb3130a6d2b9c4b8ccef11e9f51586
   m_configObjects:
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   m_UseUCBPForAssetBundles: 0

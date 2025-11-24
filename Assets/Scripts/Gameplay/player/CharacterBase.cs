@@ -77,6 +77,8 @@ public abstract class CharacterBase : NetworkBehaviour
     public NetworkVariable<int> Fuerza = new NetworkVariable<int>();
     public NetworkVariable<int> Nivel = new NetworkVariable<int>();
     public NetworkVariable<float> Estamina = new NetworkVariable<float>();
+
+    private bool controlsEnabled = true;
     public float EstaminaMaxima { get { return estaminaMaxima; } }
 
     private float serverMoveInput;
@@ -90,12 +92,13 @@ public abstract class CharacterBase : NetworkBehaviour
         rb = GetComponent<Rigidbody>();
         animator = GetComponent<Animator>();
     }
-    
+
     public override void OnNetworkSpawn()
     {
-        base.OnNetworkSpawn();
+        base.OnNetworkSpawn(); // ¡Siempre primero!
 
         transform.rotation = Quaternion.Euler(0, 90, 0);
+
         if (IsServer)
         {
             Vida.Value = vidaMaxima;
@@ -103,26 +106,17 @@ public abstract class CharacterBase : NetworkBehaviour
             Nivel.Value = nivelBase;
             Estamina.Value = estaminaMaxima;
         }
-        if (UIManager.Instance != null)
-        {
-            UIManager.Instance.RegisterPlayer(this);
-        }
-        if (MinigameManager.Instance != null)
-        {
-            MinigameManager.Instance.RegisterPlayer(this);
-        }
-        else
-        {
-            // ¡Añade este Debug! Si ves esto, el problema es la "Race Condition"
-            Debug.LogError("¡ERROR! MinigameManager.Instance era NULL al spawnear.");
-        }
+
+        // --- CAMBIO AQUÍ: INICIAMOS EL REGISTRO SEGURO ---
+        StartCoroutine(WaitForManagersAndRegister());
+
         IsKing.OnValueChanged += OnKingStatusChanged;
         OnKingStatusChanged(false, IsKing.Value);
     }
     public override void OnNetworkDespawn()
     {
         base.OnNetworkDespawn();
-
+        StartCoroutine(RegisterWithDelay());
         if (UIManager.Instance != null)
         {
             UIManager.Instance.UnregisterPlayer(this);
@@ -132,6 +126,68 @@ public abstract class CharacterBase : NetworkBehaviour
             MinigameManager.Instance.UnregisterPlayer(this);
         }
         IsKing.OnValueChanged -= OnKingStatusChanged;
+        OnKingStatusChanged(false, IsKing.Value);
+
+    }
+    private IEnumerator WaitForManagersAndRegister()
+    {
+        while (UIManager.Instance == null)
+        {
+            yield return null;
+        }
+        UIManager.Instance.RegisterPlayer(this);
+
+        while (MinigameManager.Instance == null)
+        {
+            yield return null;
+        }
+        if (MinigameManager.Instance != null)
+        {
+            MinigameManager.Instance.RegisterPlayer(this);
+        }
+        // 2. ¿O es el juego de Supervivencia?
+        else if (SurvivalGameManager.Instance != null)
+        {
+            SurvivalGameManager.Instance.RegisterPlayer(this);
+        }
+    }
+    private IEnumerator RegisterWithDelay()
+    {
+        yield return null;
+
+        if (IsServer) 
+        {
+            if (MinigameManager.Instance != null)
+                MinigameManager.Instance.RegisterPlayer(this);
+            else
+                Debug.LogError($"[Player {OwnerClientId}] ¡MinigameManager NULL al intentar registrarse!");
+        }
+
+        // Todos necesitan UI
+        if (UIManager.Instance != null)
+            UIManager.Instance.RegisterPlayer(this);
+        else
+            Debug.LogError($"[Player {OwnerClientId}] ¡UIManager NULL al intentar registrarse!");
+    }
+    [ClientRpc]
+    public void KillPlayerClientRpc()
+    {
+        // Aquí decides cómo "muere" visualmente.
+        // Opción A: Desactivar el objeto entero (Cuidado, puede romper RPCs si eres el host)
+        // gameObject.SetActive(false); 
+
+        // Opción B (Mejor): Desactivar visuales y colisiones, pero dejar el script vivo
+        SetInputActive(false); // Congelar
+
+        // Desactivar collider para que no golpee a otros fantasma
+        GetComponent<Collider>().enabled = false;
+        rb.isKinematic = true; // Que no caiga al infinito
+
+        // Ocultar modelo 3D (asumiendo que tienes un hijo con el modelo)
+        // transform.GetChild(0).gameObject.SetActive(false); 
+
+        // O simplemente moverlo a una "zona de espectadores" lejos
+        // transform.position = new Vector3(0, 100, 0);
     }
     private void OnKingStatusChanged(bool previousValue, bool newValue)
     {
@@ -141,10 +197,25 @@ public abstract class CharacterBase : NetworkBehaviour
             crownVisual.SetActive(newValue);
         }
     }
+    public void SetInputActive(bool isActive)
+    {
+        controlsEnabled = isActive;
+
+        // Si desactivamos, frenamos al personaje en seco
+        if (!isActive && rb != null)
+        {
+            rb.linearVelocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+            serverMoveInput = 0; // Resetear input del servidor
+
+            // Opcional: Poner animación de Idle
+            if (animator) animator.SetFloat("Speed", 0);
+        }
+    }
     // --- MANEJO DE INPUT
     public virtual void OnMove(InputAction.CallbackContext context)
     {
-        if (!IsOwner || CurrentState.Value != PlayerState.Normal)
+        if (!IsOwner || CurrentState.Value != PlayerState.Normal || !controlsEnabled)
         {
             clientMoveInput = 0; 
             return;
@@ -153,7 +224,7 @@ public abstract class CharacterBase : NetworkBehaviour
     }
     public virtual void OnJump(InputAction.CallbackContext context)
     {
-        if (!IsOwner || CurrentState.Value != PlayerState.Normal) return;
+        if (!IsOwner || CurrentState.Value != PlayerState.Normal || !controlsEnabled) return;
 
         if (context.performed)
         {
@@ -162,7 +233,7 @@ public abstract class CharacterBase : NetworkBehaviour
     }
     public virtual void OnNormalAttack(InputAction.CallbackContext context)
     {
-        if (!IsOwner || CurrentState.Value != PlayerState.Normal) return;
+        if (!IsOwner || CurrentState.Value != PlayerState.Normal || !controlsEnabled) return;
         
         if (context.performed)
         {
@@ -171,7 +242,7 @@ public abstract class CharacterBase : NetworkBehaviour
     }
     public virtual void OnUltimateAttack(InputAction.CallbackContext context)
     {
-        if (!IsOwner || CurrentState.Value != PlayerState.Normal) return;
+        if (!IsOwner || CurrentState.Value != PlayerState.Normal || !controlsEnabled) return;
         
         if (context.performed)
         {
@@ -180,7 +251,7 @@ public abstract class CharacterBase : NetworkBehaviour
     }
     public virtual void OnCharge(InputAction.CallbackContext context)
     {
-        if (!IsOwner || CurrentState.Value == PlayerState.Knockback) return;
+        if (!IsOwner || CurrentState.Value == PlayerState.Knockback || !controlsEnabled) return;
 
         // Si presionó el botón
         if (context.performed)

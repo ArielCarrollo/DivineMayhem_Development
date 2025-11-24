@@ -2,6 +2,7 @@ using UnityEngine;
 using Unity.Netcode;
 using System.Collections;
 using System.Collections.Generic;
+using UnityEngine.SceneManagement;
 
 public struct PlayerScore : INetworkSerializable, System.IEquatable<PlayerScore>
 {
@@ -24,12 +25,18 @@ public class MinigameManager : NetworkBehaviour
 {
     public static MinigameManager Instance { get; private set; }
 
+    [Header("Condiciones de Victoria")]
+    [SerializeField] private int scoreToWin = 100; // Meta de puntos
+    [SerializeField] private string nextSceneName = "SurvivalLava";
+    [SerializeField] private IntermissionUI intermissionPanel;
 
     [SerializeField, Tooltip("Puntos por segundo por tener la corona")]
     private int pointsPerSecond = 1;
 
+    public bool isGameEnded = false;
     public NetworkVariable<ulong> CurrentKingId = new NetworkVariable<ulong>(999);
     public NetworkList<PlayerScore> PlayerPoints = new NetworkList<PlayerScore>();
+    private NetworkVariable<int> playersReadyCount = new NetworkVariable<int>(0);
 
     private Dictionary<ulong, CharacterBase> playerList = new Dictionary<ulong, CharacterBase>();
 
@@ -45,19 +52,14 @@ public class MinigameManager : NetworkBehaviour
 
         ulong playerID = player.OwnerClientId;
 
-        // 1. Registramos al jugador en el Diccionario
         if (!playerList.ContainsKey(playerID))
         {
             playerList.Add(playerID, player);
             Debug.Log($"MinigameManager: Player {playerID} registrado.");
 
-            // Le creamos su puntaje inicial
             PlayerPoints.Add(new PlayerScore { PlayerId = playerID, Score = 0 });
         }
 
-        // 2. --- LÓGICA DE INICIO AUTOMÁTICO ---
-        // Si NO HAY REY (999) o el rey actual ya no existe...
-        // ...¡Este nuevo jugador se convierte en el Rey automáticamente!
         if (CurrentKingId.Value == 999 || !playerList.ContainsKey(CurrentKingId.Value))
         {
             Debug.Log("MinigameManager: No había rey. ¡El nuevo jugador es el Rey!");
@@ -75,8 +77,6 @@ public class MinigameManager : NetworkBehaviour
             playerList.Remove(playerID);
         }
 
-        // Opcional: Si el Rey se desconecta, la corona queda "en el limbo" (999)
-        // hasta que alguien golpee a alguien o entre otro jugador.
         if (CurrentKingId.Value == playerID)
         {
             CurrentKingId.Value = 999;
@@ -91,8 +91,9 @@ public class MinigameManager : NetworkBehaviour
         if (!IsServer) return;
 
         StartCoroutine(PointAwardCoroutine());
+        playersReadyCount.OnValueChanged += OnReadyCountChanged;
     }
-
+   
     private IEnumerator StartMinigameDelay()
     {
         yield return new WaitForSeconds(3.0f);
@@ -142,7 +143,7 @@ public class MinigameManager : NetworkBehaviour
 
     private IEnumerator PointAwardCoroutine()
     {
-        while (true)
+        while (!isGameEnded)
         {
             yield return new WaitForSeconds(1.0f);
 
@@ -162,17 +163,95 @@ public class MinigameManager : NetworkBehaviour
                     score.Score += pointsPerSecond;
                     PlayerPoints[i] = score; // Esto actualiza la UI
                     scoreUpdated = true;
+
+                    if (score.Score >= scoreToWin)
+                    {
+                        EndMinigame(kingId); // ¡Alguien ganó!
+                    }
+
                     break;
                 }
             }
 
-            // --- AUTO-REPARACIÓN ---
-            // Si el rey existe pero no tenía puntaje (por el bug de inicio), lo creamos ahora.
             if (!scoreUpdated)
             {
                 Debug.LogWarning($"Auto-Repair: Creando puntaje para el Rey {kingId}");
                 PlayerPoints.Add(new PlayerScore { PlayerId = kingId, Score = pointsPerSecond });
             }
+        }
+    }
+    private void EndMinigame(ulong winnerId)
+    {
+        if (!IsServer) return;
+        if (isGameEnded) return;
+
+        isGameEnded = true;
+        Debug.Log($"¡JUEGO TERMINADO! Ganador: Player {winnerId}");
+
+        
+        if (GlobalGameManager.Instance != null)
+        {
+            foreach (var localScore in PlayerPoints)
+            {
+                GlobalGameManager.Instance.AddPointsToGlobal(localScore.PlayerId, localScore.Score);
+            }
+        }
+        else
+        {
+            Debug.LogError("¡ERROR CRÍTICO! No existe GlobalGameManager.");
+        }
+        ShowIntermissionClientRpc();
+    }
+
+    [ClientRpc]
+    private void ShowIntermissionClientRpc()
+    {
+        // 1. INTENTO DE RECUPERACIÓN: Si la referencia se perdió, búscala.
+        if (intermissionPanel == null)
+        {
+            // El 'true' dentro del paréntesis es vital: significa "busca incluso si está desactivado"
+            intermissionPanel = FindObjectOfType<IntermissionUI>(true);
+        }
+
+        // 2. VERIFICACIÓN Y ACTIVACIÓN
+        if (intermissionPanel != null)
+        {
+            Debug.Log("CLIENTE: ¡Panel encontrado y activado!");
+            intermissionPanel.gameObject.SetActive(true);
+        }
+        else
+        {
+            Debug.LogError("CLIENTE: ¡SOCORRO! No encuentro el 'PanelResultados' en la escena.");
+            return; // Si no hay panel, no podemos seguir
+        }
+
+        // B. Ocultar HUD del Juego
+        if (UIManager.Instance != null) UIManager.Instance.SetGameHUDActive(false);
+
+        // C. Congelar al Jugador Local
+        var localPlayer = NetworkManager.Singleton.LocalClient.PlayerObject;
+        if (localPlayer != null && localPlayer.TryGetComponent<CharacterBase>(out var character))
+        {
+            character.SetInputActive(false); // ¡Congelado!
+        }
+    }
+    public void ClientIsReady()
+    {
+        PlayerReadyServerRpc();
+    }
+    [ServerRpc(RequireOwnership = false)]
+    private void PlayerReadyServerRpc(ServerRpcParams rpcParams = default)
+    {
+        playersReadyCount.Value++;
+        
+        Debug.Log($"Jugadores listos: {playersReadyCount}");
+
+        int totalPlayers = NetworkManager.Singleton.ConnectedClients.Count;
+
+        if (playersReadyCount.Value >= totalPlayers)
+        {
+            Debug.Log("¡Todos listos! Cargando siguiente nivel...");
+            NetworkManager.Singleton.SceneManager.LoadScene(nextSceneName, LoadSceneMode.Single);
         }
     }
     public int GetPlayerScore(ulong playerId)
@@ -188,5 +267,19 @@ public class MinigameManager : NetworkBehaviour
 
         // Si no lo encuentra, devuelve 0
         return 0;
+    }
+    private void OnReadyCountChanged(int previous, int current)
+    {
+        if (intermissionPanel != null && intermissionPanel.gameObject.activeSelf)
+        {
+            int total = NetworkManager.Singleton.ConnectedClients.Count;
+            // Actualizamos el texto del botón
+            intermissionPanel.UpdateReadyCount(current, total);
+        }
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        playersReadyCount.OnValueChanged -= OnReadyCountChanged;
     }
 }
