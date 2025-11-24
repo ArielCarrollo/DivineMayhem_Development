@@ -17,6 +17,18 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/Game.unity
     guid: 919a75542a02648418309466111fe414
+  - enabled: 1
+    path: Assets/Scenes/Gameplay/CrownCatching.unity
+    guid: 194774b13ecaf1a48be4c55c9ca20eab
+  - enabled: 1
+    path: Assets/Scenes/Gameplay/Crazy Ball.unity
+    guid: 9dc1161d816d8284091f26884ebb87ae
+  - enabled: 1
+    path: Assets/Scenes/Gameplay/Falling Floor.unity
+    guid: 681fe4179f904dc4293c079d913f79f8
+  - enabled: 1
+    path: Assets/Scenes/Gameplay/Race.unity
+    guid: c8773e6f2630af345b13a462e9df4179
   m_configObjects:
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   m_UseUCBPForAssetBundles: 0

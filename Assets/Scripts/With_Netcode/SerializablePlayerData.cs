@@ -1,8 +1,10 @@
 using System;
+using Unity.Collections;
 
 /// <summary>
-/// Clase auxiliar para serializar los datos del jugador a Cloud Save.
-/// Almacena campos de PlayerData en tipos que JSON puede manejar fácilmente.
+/// Clase serializable que contiene sólo tipos nativos para almacenar el progreso del jugador en Cloud Save.
+/// Se utiliza para convertir desde y hacia <see cref="PlayerData"/> evitando problemas con FixedString.
+/// Ahora incluye el campo de puntos acumulados.
 /// </summary>
 [Serializable]
 public class SerializablePlayerData
@@ -10,8 +12,11 @@ public class SerializablePlayerData
     public ulong ClientId;
     public string Username;
     public bool IsReady;
+    // Para mantener compatibilidad con versiones anteriores se conservan los campos Level y CurrentXP,
+    // aunque ya no se utilicen en el nuevo sistema de puntos.
     public int Level;
     public int CurrentXP;
+    public int Points;
     public int BodyIndex;
     public int EyesIndex;
     public int GlovesIndex;
@@ -19,22 +24,20 @@ public class SerializablePlayerData
     public string BirthDate;
     public string Status;
     public string ProfileImageKey;
+    public string ProfileImageBase64;
     public bool IsAnonymous;
-    // Nota: podrían añadirse más campos en el futuro según PlayerData
 
-    public SerializablePlayerData() {}
+    public SerializablePlayerData() { }
 
-    /// <summary>
-    /// Crea un SerializablePlayerData a partir de un PlayerData.
-    /// Convierte las estructuras FixedString a strings normales.
-    /// </summary>
     public SerializablePlayerData(PlayerData data)
     {
         ClientId = data.ClientId;
         Username = data.Username.ToString();
         IsReady = data.IsReady;
-        Level = data.Level;
-        CurrentXP = data.CurrentXP;
+        // Los campos de nivel y experiencia se establecen a cero por compatibilidad.
+        Level = 0;
+        CurrentXP = 0;
+        Points = data.Points;
         BodyIndex = data.BodyIndex;
         EyesIndex = data.EyesIndex;
         GlovesIndex = data.GlovesIndex;
@@ -42,27 +45,27 @@ public class SerializablePlayerData
         BirthDate = data.BirthDate.ToString();
         Status = data.Status.ToString();
         ProfileImageKey = data.ProfileImageKey.ToString();
+        ProfileImageBase64 = data.ProfileImageBase64.ToString();
         IsAnonymous = data.IsAnonymous;
     }
 
     /// <summary>
-    /// Convierte este objeto serializable en un PlayerData. Se requiere proporcionar un clientId externo
-    /// porque el ClientId almacenado en la nube puede no coincidir con el ID asignado por la sesión actual.
+    /// Convierte esta instancia serializable en un <see cref="PlayerData"/>. Se puede especificar un ClientId diferente.
     /// </summary>
     public PlayerData ToPlayerData(ulong clientId)
     {
-        // Crear nuevo PlayerData usando username para inicializar
-        var player = new PlayerData(clientId, string.IsNullOrEmpty(Username) ? "" : Username, IsReady);
-        player.Level = Level;
-        player.CurrentXP = CurrentXP;
-        player.BodyIndex = BodyIndex;
-        player.EyesIndex = EyesIndex;
-        player.GlovesIndex = GlovesIndex;
-        player.Description = new Unity.Collections.FixedString512Bytes(Description ?? string.Empty);
-        player.BirthDate = new Unity.Collections.FixedString32Bytes(BirthDate ?? string.Empty);
-        player.Status = new Unity.Collections.FixedString128Bytes(Status ?? string.Empty);
-        player.ProfileImageKey = new Unity.Collections.FixedString64Bytes(ProfileImageKey ?? string.Empty);
-        player.IsAnonymous = IsAnonymous;
-        return player;
+        PlayerData pd = new PlayerData(clientId, Username ?? string.Empty);
+        pd.IsReady = IsReady;
+        pd.Points = Points;
+        pd.BodyIndex = BodyIndex;
+        pd.EyesIndex = EyesIndex;
+        pd.GlovesIndex = GlovesIndex;
+        pd.Description = new FixedString512Bytes(Description ?? string.Empty);
+        pd.BirthDate = new FixedString32Bytes(BirthDate ?? string.Empty);
+        pd.Status = new FixedString128Bytes(Status ?? string.Empty);
+        pd.ProfileImageKey = new FixedString64Bytes(ProfileImageKey ?? string.Empty);
+        pd.ProfileImageBase64 = new FixedString4096Bytes(ProfileImageBase64 ?? string.Empty);
+        pd.IsAnonymous = IsAnonymous;
+        return pd;
     }
 }

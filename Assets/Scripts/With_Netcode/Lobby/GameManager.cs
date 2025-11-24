@@ -23,11 +23,19 @@ public class GameManager : NetworkBehaviour
 
     private CinemachineImpulseSource impulseSource;
 
-    [Header("Leveling System")]
-    [SerializeField] private int baseXpToLevelUp = 100;
-    [SerializeField] private float xpMultiplierPerLevel = 1.2f;
+    [Header("Point & Map System")]
+    // Lista de nombres de escenas que representan los mapas disponibles. Se puede configurar desde el Inspector.
+    [SerializeField] private List<string> availableMapNames = new List<string> { "Game" };
+    // Variable de red para replicar el índice del mapa inicial seleccionado por el host.
+    public NetworkVariable<int> currentMapIndex = new NetworkVariable<int>(0);
+
+    [SerializeField] private int baseXpToLevelUp = 100; // obsoleto
+    [SerializeField] private float xpMultiplierPerLevel = 1.2f; // obsoleto
 
     private Dictionary<ulong, bool> clientLoadedLobbyUI = new Dictionary<ulong, bool>();
+
+    // Evento que se dispara cuando cambia el índice del mapa inicial.
+    public event Action<int> OnMapIndexChanged;
 
     void Awake()
     {
@@ -60,8 +68,21 @@ public class GameManager : NetworkBehaviour
 
     public override void OnNetworkSpawn()
     {
-        if (!IsServer) return;
+        if (!IsServer)
+        {
+            // En el cliente nos suscribimos al cambio del índice de mapa para actualizar la UI
+            currentMapIndex.OnValueChanged += (prev, cur) =>
+            {
+                OnMapIndexChanged?.Invoke(cur);
+            };
+            return;
+        }
         NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnect;
+        // El host también se suscribe a los cambios para notificar a los clientes
+        currentMapIndex.OnValueChanged += (prev, cur) =>
+        {
+            OnMapIndexChanged?.Invoke(cur);
+        };
     }
 
     private void OnClientDisconnect(ulong clientId)
@@ -83,6 +104,16 @@ public class GameManager : NetworkBehaviour
             }
         }
     }
+
+    /// <summary>
+    /// Lista de nombres de mapas disponibles. Expone el campo serializado.
+    /// </summary>
+    public List<string> AvailableMapNames => availableMapNames;
+
+    /// <summary>
+    /// Devuelve el índice del mapa actualmente seleccionado.
+    /// </summary>
+    public int CurrentMapIndex => currentMapIndex.Value;
 
     // --- Lógica de Autenticación y Carga de Lobby ---
 
@@ -186,6 +217,39 @@ public class GameManager : NetworkBehaviour
         {
 
         }
+    }
+
+    /// <summary>
+    /// Permite que el host establezca el índice del mapa inicial. Este RPC debe ser llamado sólo por el host.
+    /// </summary>
+    [Rpc(SendTo.Server)]
+    public void SetStartingMapServerRpc(int index, RpcParams rpcParams = default)
+    {
+        if (!IsServer) return;
+        // Validamos que el índice esté dentro de la lista de mapas disponibles
+        if (availableMapNames == null || availableMapNames.Count == 0) return;
+        if (index < 0 || index >= availableMapNames.Count) return;
+        currentMapIndex.Value = index;
+    }
+
+    /// <summary>
+    /// Selecciona un mapa aleatorio distinto al actual y lo asigna como siguiente mapa.
+    /// </summary>
+    public void SelectRandomNextMap()
+    {
+        if (!IsServer) return;
+        if (availableMapNames == null || availableMapNames.Count == 0) return;
+        int count = availableMapNames.Count;
+        if (count == 1)
+        {
+            return; // no hay alternancia
+        }
+        int newIndex;
+        do
+        {
+            newIndex = UnityEngine.Random.Range(0, count);
+        } while (newIndex == currentMapIndex.Value);
+        currentMapIndex.Value = newIndex;
     }
 
 
@@ -370,7 +434,17 @@ public class GameManager : NetworkBehaviour
         if (rpcParams.Receive.SenderClientId != NetworkManager.ServerClientId) return;
         if (!AllPlayersReady()) return;
 
-        NetworkManager.Singleton.SceneManager.LoadScene(GameSceneName, LoadSceneMode.Single);
+        // Utilizamos la escena correspondiente al índice de mapa actual
+        string sceneToLoad = GameSceneName;
+        if (availableMapNames != null && availableMapNames.Count > 0)
+        {
+            int idx = currentMapIndex.Value;
+            if (idx >= 0 && idx < availableMapNames.Count)
+            {
+                sceneToLoad = availableMapNames[idx];
+            }
+        }
+        NetworkManager.Singleton.SceneManager.LoadScene(sceneToLoad, LoadSceneMode.Single);
         NetworkManager.Singleton.SceneManager.OnLoadEventCompleted += OnClientSceneLoaded;
     }
 
@@ -384,9 +458,16 @@ public class GameManager : NetworkBehaviour
         return true;
     }
 
-    private void OnClientSceneLoaded(string sceneName, LoadSceneMode loadSceneMode, List<ulong> clientsCompleted, List<ulong> clientsTimedOut)
-    {
-        if (sceneName != GameSceneName) return;
+        private void OnClientSceneLoaded(string sceneName, LoadSceneMode loadSceneMode, List<ulong> clientsCompleted, List<ulong> clientsTimedOut)
+        {
+            // Comprobamos si la escena cargada es la principal o una de las escenas definidas en availableMapNames
+            bool isMainGameScene = sceneName == GameSceneName;
+            bool isDefinedMiniGameScene = false;
+            if (availableMapNames != null && availableMapNames.Count > 0)
+            {
+                isDefinedMiniGameScene = availableMapNames.Contains(sceneName);
+            }
+            if (!isMainGameScene && !isDefinedMiniGameScene) return;
 
         var allConnectedClientIds = NetworkManager.Singleton.ConnectedClientsIds.ToList();
 
@@ -438,7 +519,8 @@ public class GameManager : NetworkBehaviour
         if (nicknameUI != null)
         {
             nicknameUI.Nickname.Value = playerData.Username;
-            nicknameUI.Level.Value = playerData.Level;
+            // Asignamos los puntos acumulados al componente de UI
+            nicknameUI.Points.Value = playerData.Points;
         }
     }
 
@@ -472,30 +554,51 @@ public class GameManager : NetworkBehaviour
     [Rpc(SendTo.Server)]
     public void AddXpToPlayerServerRpc(int amount, RpcParams rpcParams = default)
     {
+        // Método obsoleto. Para el nuevo sistema de puntos, utilice AddPointsToPlayerServerRpc.
+        AddPointsToPlayerServerRpc(amount, rpcParams);
+    }
+
+    /// <summary>
+    /// Suma puntos al jugador que realiza la llamada. Se usa para el sistema de minijuegos.
+    /// </summary>
+    [Rpc(SendTo.Server)]
+    public void AddPointsToPlayerServerRpc(int amount, RpcParams rpcParams = default)
+    {
         ulong clientId = rpcParams.Receive.SenderClientId;
         for (int i = 0; i < PlayersInLobby.Count; i++)
         {
             if (PlayersInLobby[i].ClientId == clientId)
             {
                 PlayerData updatedPlayer = PlayersInLobby[i];
-                updatedPlayer.CurrentXP += amount;
-
-                int xpNeeded = GetXpForLevel(updatedPlayer.Level);
-                while (updatedPlayer.CurrentXP >= xpNeeded)
-                {
-                    updatedPlayer.CurrentXP -= xpNeeded;
-                    updatedPlayer.Level++;
-                    xpNeeded = GetXpForLevel(updatedPlayer.Level);
-                }
-
+                updatedPlayer.Points += amount;
                 PlayersInLobby[i] = updatedPlayer;
+                // Persistimos el progreso del jugador
                 SavePlayerProgress(updatedPlayer, clientId);
-
                 break;
             }
         }
     }
-
+    /// <summary>
+    /// Añade puntos al jugador identificado por su clientId. Este método debe ejecutarse en el servidor.
+    /// Busca al jugador en la NetworkList y actualiza su campo Points, luego persiste el progreso.
+    /// </summary>
+    /// <param name="clientId">Id de cliente del jugador al que se sumarán los puntos.</param>
+    /// <param name="amount">Cantidad de puntos a sumar.</param>
+    public void AddPointsToPlayerById(ulong clientId, int amount)
+    {
+        if (!IsServer) return;
+        for (int i = 0; i < PlayersInLobby.Count; i++)
+        {
+            if (PlayersInLobby[i].ClientId == clientId)
+            {
+                PlayerData updatedPlayer = PlayersInLobby[i];
+                updatedPlayer.Points += amount;
+                PlayersInLobby[i] = updatedPlayer;
+                SavePlayerProgress(updatedPlayer, clientId);
+                break;
+            }
+        }
+    }
     private void SavePlayerProgress(PlayerData data, ulong clientId)
     {
         ClientRpcParams clientRpcParams = new ClientRpcParams
@@ -511,7 +614,8 @@ public class GameManager : NetworkBehaviour
     [ClientRpc]
     private void RequestClientSaveProgressClientRpc(PlayerData data, ClientRpcParams clientRpcParams)
     {
-        Debug.Log($"Cliente: Recibida solicitud para guardar progreso. Nivel: {data.Level}, XP: {data.CurrentXP}");
+        // Se registra la recepción de la solicitud de guardado de progreso con el nuevo sistema de puntos
+        Debug.Log($"Cliente: Recibida solicitud para guardar progreso. Puntos: {data.Points}");
         if (CloudAuthManager.Instance != null)
         {
             CloudAuthManager.Instance.UpdateLocalData(data);

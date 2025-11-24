@@ -10,19 +10,20 @@ public class PlayerNicknameUI : NetworkBehaviour
 
     // --- NUEVAS VARIABLES ---
     public NetworkVariable<FixedString64Bytes> Nickname = new NetworkVariable<FixedString64Bytes>();
-    public NetworkVariable<int> Level = new NetworkVariable<int>(1); // Nivel por defecto 1
+    // Variable de red para almacenar los puntos del jugador. Por defecto inicia en 0.
+    public NetworkVariable<int> Points = new NetworkVariable<int>(0);
 
     public override void OnNetworkSpawn()
     {
-        // Nos suscribimos a los cambios de AMBAS variables
+        // Nos suscribimos a los cambios de ambas variables
         Nickname.OnValueChanged += HandleDisplayTextChanged;
-        Level.OnValueChanged += HandleDisplayTextChanged;
+        Points.OnValueChanged += HandleDisplayTextChanged;
 
         // Actualizamos el texto con los valores iniciales
         UpdateDisplayText();
     }
 
-    // Un solo método para manejar el cambio de cualquiera de las dos variables
+    // Un solo mÃ©todo para manejar el cambio de cualquiera de las dos variables
     private void HandleDisplayTextChanged(FixedString64Bytes previousValue, FixedString64Bytes newValue)
     {
         UpdateDisplayText();
@@ -33,9 +34,10 @@ public class PlayerNicknameUI : NetworkBehaviour
         UpdateDisplayText();
     }
 
-    // El método que construye el texto final
+    // El mÃ©todo que construye el texto final
     private void UpdateDisplayText()
     {
-        nicknameText.text = $"[Nvl {Level.Value}] {Nickname.Value}";
+        // Mostramos los puntos acumulados en lugar del nivel
+        nicknameText.text = $"[Pts {Points.Value}] {Nickname.Value}";
     }
 }

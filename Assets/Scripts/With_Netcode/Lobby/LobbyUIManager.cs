@@ -83,8 +83,16 @@ public class LobbyUIManager : MonoBehaviour
     [SerializeField] private Button saveNameButton;
 
     [Header("Player Progression")]
+    // Texto para mostrar los puntos acumulados en lugar de nivel/experiencia
     [SerializeField] private TextMeshProUGUI levelText;
+    // Barra de progreso de experiencia, ya no utilizada para niveles. Se puede ocultar en la interfaz.
     [SerializeField] private Slider xpBar;
+
+    [Header("Map Selection")]
+    [Tooltip("Texto que muestra el primer mapa seleccionado por el anfitrión")]
+    [SerializeField] private TextMeshProUGUI firstMapText;
+    [Tooltip("Botón que permite al anfitrión cambiar el primer mapa antes de empezar la partida")]
+    [SerializeField] private Button changeMapButton;
 
     private bool isInitialized = false;
 
@@ -214,6 +222,16 @@ public class LobbyUIManager : MonoBehaviour
         RefreshVoiceUI();
         ShowPublicChatPanel(); // al entrar pintamos el historial público
         StartCoroutine(InitialListRefresh());
+
+        // Configurar selección de mapa inicial (solo para el anfitrión)
+        SetupMapSelectionUI();
+
+        // Suscribirnos al cambio de mapa para actualizar el texto cuando el host lo cambie
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.OnMapIndexChanged -= HandleMapIndexChanged;
+            GameManager.Instance.OnMapIndexChanged += HandleMapIndexChanged;
+        }
     }
 
     private IEnumerator InitialListRefresh()
@@ -260,7 +278,58 @@ public class LobbyUIManager : MonoBehaviour
         playerCardInstances.Clear();
         privateEntries.Clear();
 
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.OnMapIndexChanged -= HandleMapIndexChanged;
+        }
+
         isInitialized = false;
+    }
+
+    /// <summary>
+    /// Configura la interfaz de selección de mapa. Sólo el anfitrión puede cambiar el mapa inicial.
+    /// </summary>
+    private void SetupMapSelectionUI()
+    {
+        if (changeMapButton != null)
+        {
+            bool isHost = NetworkManager.Singleton.IsHost;
+            changeMapButton.gameObject.SetActive(isHost);
+            changeMapButton.onClick.RemoveAllListeners();
+            if (isHost)
+            {
+                changeMapButton.onClick.AddListener(OnChangeMapClicked);
+            }
+        }
+        UpdateFirstMapText();
+    }
+
+    /// <summary>
+    /// Maneja el clic en el botón de cambio de mapa. Se pasa al siguiente mapa disponible.
+    /// </summary>
+    private void OnChangeMapClicked()
+    {
+        if (GameManager.Instance == null) return;
+
+        var maps = GameManager.Instance.AvailableMapNames;
+        if (maps == null || maps.Count == 0) return;
+
+        int currentIndex = GameManager.Instance.CurrentMapIndex;
+        int nextIndex = (currentIndex + 1) % maps.Count;
+        GameManager.Instance.SetStartingMapServerRpc(nextIndex);
+    }
+
+    /// <summary>
+    /// Actualiza el texto que muestra el primer mapa seleccionado. Se llama al inicializar y al cambiar.
+    /// </summary>
+    public void UpdateFirstMapText()
+    {
+        if (firstMapText == null || GameManager.Instance == null) return;
+        var maps = GameManager.Instance.AvailableMapNames;
+        if (maps == null || maps.Count == 0) return;
+        int index = GameManager.Instance.CurrentMapIndex;
+        string mapName = maps[index];
+        firstMapText.text = $"Primer Mapa: {mapName}";
     }
 
     private void Update()
@@ -492,10 +561,15 @@ public class LobbyUIManager : MonoBehaviour
 
         if (GameManager.Instance == null) return;
 
-        int xpNeededForNextLevel = GameManager.Instance.GetXpForLevel(data.Level);
-        levelText.text = $"Nivel {data.Level} | ({data.CurrentXP} / {xpNeededForNextLevel} XP)";
-        xpBar.maxValue = xpNeededForNextLevel;
-        xpBar.value = data.CurrentXP;
+        // Mostrar puntos acumulados en lugar de nivel/experiencia
+        levelText.text = $"Puntos: {data.Points}";
+        // Ocultar o deshabilitar la barra de XP ya que no se utiliza en el sistema de puntos
+        if (xpBar != null)
+        {
+            xpBar.maxValue = 1;
+            xpBar.value = 1;
+            xpBar.gameObject.SetActive(false);
+        }
     }
 
     private void OnStartGameClicked()
@@ -537,6 +611,15 @@ public class LobbyUIManager : MonoBehaviour
         playerNameText.text = newName;
         localCustomData.Username = new FixedString64Bytes(newName);
         CloudAuthManager.Instance.UpdateLocalData(localCustomData);
+    }
+
+    /// <summary>
+    /// Llamado cuando cambia el índice del mapa en GameManager. Se actualiza el texto en pantalla.
+    /// </summary>
+    /// <param name="newIndex">Índice del nuevo mapa.</param>
+    private void HandleMapIndexChanged(int newIndex)
+    {
+        UpdateFirstMapText();
     }
 
     private void OnChangeAppearance(int type, int direction)

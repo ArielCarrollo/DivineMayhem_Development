@@ -1,12 +1,19 @@
 using UnityEngine;
 using UnityEngine.UI;
+using System.Collections.Generic;
 using Unity.Netcode;
 
 public class UIManager : MonoBehaviour
 {
     public static UIManager Instance { get; private set; }
 
-    [SerializeField] private Slider playerHealthSlider;
+    [Header("UI Prefabs")]
+    [SerializeField] private GameObject playerUIPortraitPrefab;
+
+    [Header("Contenedores de Layout")]
+    [SerializeField] private Transform ffaLayoutContainer; 
+ 
+    private Dictionary<ulong, PlayerUIPortrait> playerPortraits = new Dictionary<ulong, PlayerUIPortrait>();
 
     private void Awake()
     {
@@ -20,21 +27,39 @@ public class UIManager : MonoBehaviour
         }
     }
 
-    public void RegisterPlayer(NetworkVariable<int> playerHealth, int maxHealth)
+    public void RegisterPlayer(CharacterBase player)
     {
-        if (playerHealthSlider == null)
+        ulong playerID = player.OwnerClientId;
+
+        if (playerPortraits.ContainsKey(playerID)) return;
+
+        Transform container = ffaLayoutContainer;
+
+        GameObject portraitGO = Instantiate(playerUIPortraitPrefab, container);
+
+        PlayerUIPortrait portraitScript = portraitGO.GetComponent<PlayerUIPortrait>();
+        portraitScript.Initialize(player);
+
+        playerPortraits.Add(playerID, portraitScript);
+    }
+
+    
+    public void UnregisterPlayer(CharacterBase player)
+    {
+        ulong playerID = player.OwnerClientId;
+
+        if (playerPortraits.TryGetValue(playerID, out PlayerUIPortrait portraitScript))
         {
-            Debug.LogError("No se ha asignado el Player Health Slider en el UIManager.");
-            return;
+            Destroy(portraitScript.gameObject);
+
+            playerPortraits.Remove(playerID);
         }
-
-        playerHealthSlider.maxValue = maxHealth;
-
-        playerHealthSlider.value = playerHealth.Value;
-
-        playerHealth.OnValueChanged += (previousValue, newValue) =>
+    }
+    public void SetGameHUDActive(bool isActive)
+    {
+        if (ffaLayoutContainer != null)
         {
-            playerHealthSlider.value = newValue;
-        };
+            ffaLayoutContainer.gameObject.SetActive(isActive);
+        }
     }
 }

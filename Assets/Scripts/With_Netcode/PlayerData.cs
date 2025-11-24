@@ -11,6 +11,8 @@ public struct PlayerData : INetworkSerializable, IEquatable<PlayerData>
 
     public int Level;
     public int CurrentXP;
+    // Nuevo campo para el sistema de puntos. Cada jugador acumula puntos por cada mapa/minijuego.
+    public int Points;
 
     public int BodyIndex;
     public int EyesIndex;
@@ -39,6 +41,8 @@ public struct PlayerData : INetworkSerializable, IEquatable<PlayerData>
 
         Level = 1;
         CurrentXP = 0;
+        // Al iniciar un jugador, sus puntos son cero.
+        Points = 0;
 
         BodyIndex = 0;
         EyesIndex = 0;
@@ -61,9 +65,10 @@ public struct PlayerData : INetworkSerializable, IEquatable<PlayerData>
         serializer.SerializeValue(ref Username);
         serializer.SerializeValue(ref IsReady);
 
-        // --- Serializar nuevos datos ---
+        // --- Serializar datos de progreso ---
         serializer.SerializeValue(ref Level);
         serializer.SerializeValue(ref CurrentXP);
+        serializer.SerializeValue(ref Points);
 
         serializer.SerializeValue(ref BodyIndex);
         serializer.SerializeValue(ref EyesIndex);
@@ -86,6 +91,7 @@ public struct PlayerData : INetworkSerializable, IEquatable<PlayerData>
                IsReady == other.IsReady &&
                Level == other.Level &&           // --- Añadido a la comparación ---
                CurrentXP == other.CurrentXP &&   // --- Añadido a la comparación ---
+               Points == other.Points &&         // --- Comparar puntos acumulados ---
                BodyIndex == other.BodyIndex &&
                EyesIndex == other.EyesIndex &&
                GlovesIndex == other.GlovesIndex &&
