@@ -59,6 +59,43 @@ public class RelayLobbyConnector : MonoBehaviour
     private Lobby _currentLobby;
     private Coroutine _heartbeatRoutine;
 
+    // --- Modo local offline ---
+    /// <summary>
+    /// Arranca el lobby en modo local (sin conexión a Relay ni Lobby). Se usa para
+    /// unirse directamente a la sala de espera local sin tener que introducir
+    /// nombre de lobby ni código. Instancia el GameManager si es necesario,
+    /// pone el modo offline y muestra la UI de lobby.
+    /// </summary>
+    public void StartLocalOfflineLobby()
+    {
+        Debug.Log("[RelayLobbyConnector] Iniciando lobby local offline...");
+        // Asegurarse de que la red está parada
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
+        {
+            NetworkManager.Singleton.Shutdown();
+        }
+        // Instanciar GameManager si no existe
+        if (GameManager.Instance == null && gameManagerPrefab != null)
+        {
+            var gm = Instantiate(gameManagerPrefab);
+            // En offline no es necesario spawn como NetworkObject
+        }
+        // Activar modo offline en GameManager
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.SetOfflineMode(true);
+        }
+        // Ir al lobby UI
+        if (UiGameManager.Instance != null)
+        {
+            UiGameManager.Instance.GoToLobby();
+        }
+        else
+        {
+            Debug.LogError("RelayLobbyConnector: UiGameManager.Instance es nulo. No se puede abrir el lobby.");
+        }
+    }
+
     // --- Inicialización y Flujo de UI ---
 
     private void Start()

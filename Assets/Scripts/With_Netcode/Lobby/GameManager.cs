@@ -11,6 +11,18 @@ public class GameManager : NetworkBehaviour
 {
     public static GameManager Instance { get; private set; }
     public bool IsOfflineMode { get; private set; } = false;
+
+    /// <summary>
+    /// Cambia el modo offline del GameManager. Se provee un método público
+    /// porque la propiedad IsOfflineMode tiene el setter privado para evitar
+    /// modificaciones accidentales desde fuera. Usar este método para
+    /// habilitar o deshabilitar el modo offline.
+    /// </summary>
+    /// <param name="value">Nuevo valor del modo offline</param>
+    public void SetOfflineMode(bool value)
+    {
+        IsOfflineMode = value;
+    }
     [Header("Prefabs & Scenes")]
     [SerializeField] private Transform playerPrefab;
     private const string GameSceneName = "Game";

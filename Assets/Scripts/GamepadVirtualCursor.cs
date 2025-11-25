@@ -25,6 +25,12 @@ public class GamepadVirtualCursor : MonoBehaviour
     private GameObject pressedObject;
     private Vector2 lastScreenPos;
 
+    // Referencia al PlayerInput asociado a este cursor (multijugador local)
+    private PlayerInput playerInput;
+
+    // Imagen del cursor para aplicar color
+    private Image cursorImage;
+
     private void Awake()
     {
         cursorRect = GetComponent<RectTransform>();
@@ -49,13 +55,39 @@ public class GamepadVirtualCursor : MonoBehaviour
 
         // Opcional: ocultar cursor del sistema en PC
         Cursor.visible = false;
+
+        // Obtener la imagen para aplicar color
+        cursorImage = GetComponent<Image>();
     }
 
     private void Update()
     {
-        Gamepad gamepad = Gamepad.current;
+        // Determinar el mando a usar: si hay un PlayerInput asociado, usar su Gamepad; de lo contrario, usar Gamepad.current
+        Gamepad gamepad = null;
+        if (playerInput != null)
+        {
+            // playerInput.devices es un ReadOnlyArray<InputDevice>. Buscamos el primer Gamepad disponible
+            var devices = playerInput.devices;
+            if (devices.Count > 0)
+            {
+                foreach (var dev in devices)
+                {
+                    if (dev is Gamepad g)
+                    {
+                        gamepad = g;
+                        break;
+                    }
+                }
+            }
+        }
         if (gamepad == null)
-            return; // No hay mando conectado
+        {
+            gamepad = Gamepad.current;
+        }
+        if (gamepad == null)
+        {
+            return; // No hay gamepad conectado
+        }
 
         // --- Movimiento con stick ---
         Vector2 input = useRightStick ? gamepad.rightStick.ReadValue()
@@ -78,6 +110,24 @@ public class GamepadVirtualCursor : MonoBehaviour
         if (gamepad.buttonSouth.wasReleasedThisFrame)
         {
             ReleaseUnderCursor();
+        }
+    }
+
+    /// <summary>
+    /// Inicializa el cursor para un jugador específico y aplica el color.
+    /// </summary>
+    /// <param name="pi">PlayerInput que controlará este cursor</param>
+    /// <param name="color">Color del cursor</param>
+    public void Initialize(PlayerInput pi, Color color)
+    {
+        playerInput = pi;
+        if (cursorImage == null)
+        {
+            cursorImage = GetComponent<Image>();
+        }
+        if (cursorImage != null)
+        {
+            cursorImage.color = color;
         }
     }
 
