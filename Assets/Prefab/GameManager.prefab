@@ -72,7 +72,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   ShowTopMostFoldoutHeaderGroup: 1
-  playerPrefab: {fileID: 8751161469425723191, guid: ffd110f01222ea943bc4b2bd2524f1d9, type: 3}
+  playerPrefab: {fileID: 4407747363217498156, guid: 329da1f2c3e120348815e2118fd44b97, type: 3}
+  baseXpToLevelUp: 100
+  xpMultiplierPerLevel: 1.2
 --- !u!114 &3113148977895192487
 MonoBehaviour:
   m_ObjectHideFlags: 0

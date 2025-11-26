@@ -5,9 +5,7 @@ using Unity.Collections;
 using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.UI;
-using Unity.Services.Authentication;
-using Unity.Services.Lobbies;
-using Unity.Services.Lobbies.Models;
+
 
 public class LobbyUIManager : MonoBehaviour
 {
@@ -126,6 +124,47 @@ public class LobbyUIManager : MonoBehaviour
         if (isInitialized) return;
 
         lobbyPanel.SetActive(true);
+
+        // Si el GameManager está en modo offline, ocultamos la interfaz de chat y voz
+        // y no realizamos ninguna inicialización de red. El lobby local se gestiona
+        // mediante LocalLobbyManager y los paneles de ready individuales.
+        if (GameManager.Instance != null && GameManager.Instance.IsOfflineMode)
+        {
+            // Ocultar chat público y privado
+            if (publicChatPanel != null) publicChatPanel.SetActive(false);
+            if (privateChatPanel != null) privateChatPanel.SetActive(false);
+            // Ocultar controles de voz (micrófono y deafen)
+            if (micToggleButton != null) micToggleButton.gameObject.SetActive(false);
+            if (deafenToggleButton != null) deafenToggleButton.gameObject.SetActive(false);
+            if (micStateText != null) micStateText.gameObject.SetActive(false);
+            if (deafenStateText != null) deafenStateText.gameObject.SetActive(false);
+            // Ocultar botones de listo e inicio (la lógica de ready se gestiona localmente)
+            if (startGameButton != null) startGameButton.gameObject.SetActive(false);
+            if (readyButton != null) readyButton.gameObject.SetActive(false);
+            if (readyButtonText != null) readyButtonText.gameObject.SetActive(false);
+            // Ocultar panel de código de lobby y estado
+            if (lobbyCodeText != null) lobbyCodeText.gameObject.SetActive(false);
+            if (statusText != null) statusText.gameObject.SetActive(false);
+            // Ocultar controles de nombre/cambios de apariencia si no se usan en local
+            if (playerNameText != null) playerNameText.gameObject.SetActive(false);
+            if (nameChangeInputField != null) nameChangeInputField.gameObject.SetActive(false);
+            if (saveNameButton != null) saveNameButton.gameObject.SetActive(false);
+            if (nextBodyButton != null) nextBodyButton.gameObject.SetActive(false);
+            if (prevBodyButton != null) prevBodyButton.gameObject.SetActive(false);
+            if (nextEyesButton != null) nextEyesButton.gameObject.SetActive(false);
+            if (prevEyesButton != null) prevEyesButton.gameObject.SetActive(false);
+            if (nextGlovesButton != null) nextGlovesButton.gameObject.SetActive(false);
+            if (prevGlovesButton != null) prevGlovesButton.gameObject.SetActive(false);
+            // Ocultar barra de progreso y nivel
+            if (levelText != null) levelText.gameObject.SetActive(false);
+            if (xpBar != null) xpBar.gameObject.SetActive(false);
+            // Ocultar botón de cerrar lobby (no aplicable en modo local)
+            if (closeLobbyButton != null) closeLobbyButton.gameObject.SetActive(false);
+            isInitialized = true;
+            return;
+        }
+
+        // --- Inicialización original (online) ---
 
         if (GameManager.Instance != null && GameManager.Instance.PlayersInLobby != null)
         {
@@ -261,7 +300,12 @@ public class LobbyUIManager : MonoBehaviour
 
     private void Update()
     {
-        // parpadeo de los que tienen mensajes sin leer
+        // En modo offline no actualizamos la lógica de chat ni de voz.
+        if (GameManager.Instance != null && GameManager.Instance.IsOfflineMode)
+        {
+            return;
+        }
+        // Parpadeo de los que tienen mensajes sin leer
         if (privateEntries.Count > 0 && privatePlayersContainer != null && privateChatPanel != null && privateChatPanel.activeSelf)
         {
             float t = Mathf.PingPong(Time.unscaledTime * 3.5f, 1f);
@@ -434,34 +478,38 @@ public class LobbyUIManager : MonoBehaviour
     {
         if (GameManager.Instance == null) return;
 
-        bool allPlayersReady = (readyCount == GameManager.Instance.PlayersInLobby.Count) && (GameManager.Instance.PlayersInLobby.Count > 0);
+        bool allPlayersReady =
+            (readyCount == GameManager.Instance.PlayersInLobby.Count) &&
+            (GameManager.Instance.PlayersInLobby.Count > 0);
 
-        readyCountText.text = $"{readyCount} / {GameManager.Instance.PlayersInLobby.Count}";
+        if (readyCountText != null)
+            readyCountText.text = $"{readyCount} / {GameManager.Instance.PlayersInLobby.Count}";
 
-        if (localPlayerFound)
+        if (readyButtonText != null)
         {
-            readyButtonText.text = localPlayer.IsReady ? "No Listo" : "Listo";
-        }
-        else
-        {
-            readyButtonText.text = "Listo";
-        }
-        var relay = FindObjectOfType<RelayLobbyConnector>();
-        if (relay != null && lobbyCodeText != null)
-        {
-            if (relay.CurrentLobby != null)
-            {
-                lobbyCodeText.text = $"Código Lobby: {relay.CurrentLobby.LobbyCode}";
-            }
+            if (localPlayerFound)
+                readyButtonText.text = localPlayer.IsReady ? "No Listo" : "Listo";
             else
-            {
-                // Esto se mostrará en modo Offline
-                lobbyCodeText.text = "Modo Local";
-            }
+                readyButtonText.text = "Listo";
         }
-        startGameButton.gameObject.SetActive(NetworkManager.Singleton.IsHost);
-        startGameButton.interactable = allPlayersReady;
+
+        // Si quieres mostrar algo en el código de lobby, en offline puedes poner “Modo Local”
+        if (lobbyCodeText != null)
+        {
+            if (GameManager.Instance.IsOfflineMode)
+                lobbyCodeText.text = "Modo Local";
+            else
+                lobbyCodeText.text = ""; // o lo que quieras en caso de volver a usar online
+        }
+
+        if (startGameButton != null)
+        {
+            bool isHost = NetworkManager.Singleton != null && NetworkManager.Singleton.IsHost;
+            startGameButton.gameObject.SetActive(isHost);
+            startGameButton.interactable = allPlayersReady;
+        }
     }
+
 
     private void UpdateNameAndLevelUI(PlayerData data)
     {
@@ -570,22 +618,21 @@ public class LobbyUIManager : MonoBehaviour
     private void OnCloseLobbyClicked()
     {
         if (!NetworkManager.Singleton.IsHost) return;
+
         if (GameManager.Instance != null)
         {
             GameManager.Instance.CloseLobbyServerRpc();
         }
 
-        var relay = FindObjectOfType<RelayLobbyConnector>();
-        if (relay != null)
-        {
-            relay.ShowJoiningPanel();
-        }
+        // En modo local/ offline no usamos RelayLobbyConnector.ShowJoiningPanel()
 
         if (UiGameManager.Instance != null)
         {
             UiGameManager.Instance.GoToLobbySelection();
         }
     }
+
+
 
     // =====================================================================
     // -------------------------- CHAT PÚBLICO ------------------------------
@@ -697,134 +744,55 @@ public class LobbyUIManager : MonoBehaviour
             Destroy(child.gameObject);
         privateEntries.Clear();
 
-        var relay = FindObjectOfType<RelayLobbyConnector>();
-        Lobby lobby = null;
-
-        if (relay != null && relay.CurrentLobby != null)
+        // Sólo usamos GameManager para listar jugadores (local/offline)
+        if (GameManager.Instance != null && GameManager.Instance.PlayersInLobby != null)
         {
-            var task = LobbyService.Instance.GetLobbyAsync(relay.CurrentLobby.Id);
-            yield return new WaitUntil(() => task.IsCompleted);
-
-            if (!task.IsFaulted && task.Result != null)
+            foreach (var p in GameManager.Instance.PlayersInLobby)
             {
-                lobby = task.Result;
-            }
-            else
-            {
-                lobby = relay.CurrentLobby;
-            }
-        }
-
-        // mi id
-        string myPlayerId = null;
-        if (CloudAuthManager.Instance != null)
-            myPlayerId = CloudAuthManager.Instance.GetPlayerId();
-        else if (AuthenticationService.Instance != null && AuthenticationService.Instance.IsSignedIn)
-            myPlayerId = AuthenticationService.Instance.PlayerId;
-
-        if (privatePlayerButtonPrefab == null)
-        {
-            Debug.LogWarning("[LobbyUI] privatePlayerButtonPrefab no asignado.");
-            yield break;
-        }
-
-        bool filledFromLobby = false;
-
-        if (lobby != null && lobby.Players != null && lobby.Players.Count > 1)
-        {
-            Debug.Log($"[LobbyUI] Refrescando privados desde LOBBY (fresco). Jugadores en lobby: {lobby.Players.Count}");
-            foreach (var p in lobby.Players)
-            {
-                if (p == null) continue;
-                if (!string.IsNullOrEmpty(myPlayerId) && p.Id == myPlayerId)
+                // no nos listamos a nosotros mismos
+                if (NetworkManager.Singleton != null &&
+                    p.ClientId == NetworkManager.Singleton.LocalClientId)
                     continue;
+
+                if (privatePlayerButtonPrefab == null)
+                {
+                    Debug.LogWarning("[LobbyUI] privatePlayerButtonPrefab no asignado.");
+                    yield break;
+                }
 
                 GameObject btnGO = Instantiate(privatePlayerButtonPrefab, privatePlayersContainer);
                 var txt = btnGO.GetComponentInChildren<TextMeshProUGUI>();
-                string displayName = GetLobbyPlayerDisplayName(p);
+                string displayName = SanitizeName(p.Username, p.ClientId);
                 if (txt != null) txt.text = displayName;
 
                 Image bg = btnGO.GetComponent<Image>();
 
                 var entry = new PrivateEntry
                 {
-                    playerId = p.Id,
-                    clientId = 0,
+                    playerId = null,
+                    clientId = p.ClientId,
                     go = btnGO,
                     bg = bg,
                     hasUnread = false,
                     baseColor = bg != null ? bg.color : Color.white,
                     displayName = displayName
                 };
-                privateEntries[p.Id] = entry;
+                privateEntries[p.ClientId.ToString()] = entry;
 
-                string targetId = p.Id;
                 var button = btnGO.GetComponent<Button>();
                 if (button != null)
                 {
-                    button.onClick.AddListener(() => OpenPrivateChannel(targetId, 0));
-                }
-
-                Debug.Log($"[LobbyUI] + jugador privado (lobby): {displayName} ({p.Id})");
-            }
-
-            filledFromLobby = true;
-        }
-
-        if (!filledFromLobby)
-        {
-            if (GameManager.Instance != null && GameManager.Instance.PlayersInLobby != null)
-            {
-                Debug.Log($"[LobbyUI] Refrescando privados desde GameManager. Jugadores: {GameManager.Instance.PlayersInLobby.Count}");
-                foreach (var p in GameManager.Instance.PlayersInLobby)
-                {
-                    if (p.ClientId == NetworkManager.Singleton.LocalClientId)
-                        continue;
-
-                    GameObject btnGO = Instantiate(privatePlayerButtonPrefab, privatePlayersContainer);
-                    var txt = btnGO.GetComponentInChildren<TextMeshProUGUI>();
-                    string displayName = SanitizeName(p.Username, p.ClientId);
-                    if (txt != null) txt.text = displayName;
-
-                    Image bg = btnGO.GetComponent<Image>();
-
-                    var entry = new PrivateEntry
-                    {
-                        playerId = null,
-                        clientId = p.ClientId,
-                        go = btnGO,
-                        bg = bg,
-                        hasUnread = false,
-                        baseColor = bg != null ? bg.color : Color.white,
-                        displayName = displayName
-                    };
-                    privateEntries[p.ClientId.ToString()] = entry;
-
-                    var button = btnGO.GetComponent<Button>();
-                    if (button != null)
-                    {
-                        ulong cid = p.ClientId;
-                        button.onClick.AddListener(() => OpenPrivateChannel(null, cid));
-                    }
-
-                    Debug.Log($"[LobbyUI] + jugador privado (GM): {displayName} (clientId {p.ClientId})");
+                    ulong cid = p.ClientId;
+                    button.onClick.AddListener(() => OpenPrivateChannel(null, cid));
                 }
             }
-            else
-            {
-                Debug.Log("[LobbyUI] No hay lobby ni GameManager para listar privados.");
-            }
         }
-    }
-
-    private string GetLobbyPlayerDisplayName(Unity.Services.Lobbies.Models.Player p)
-    {
-        if (p.Data != null && p.Data.TryGetValue("PlayerName", out var dataObj) && dataObj != null)
+        else
         {
-            return dataObj.Value;
+            Debug.Log("[LobbyUI] No hay GameManager.PlayersInLobby para listar privados.");
         }
 
-        return p.Id;
+        yield break;
     }
 
     private string GetConversationKey(string playerId, ulong clientId)

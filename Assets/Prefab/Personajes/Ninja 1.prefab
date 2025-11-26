@@ -6225,9 +6225,8 @@ GameObject:
   - component: {fileID: 495914775997054023}
   - component: {fileID: 1752147455366450421}
   - component: {fileID: 5183570574983018631}
-  - component: {fileID: 8741094267056336468}
+  - component: {fileID: 8095357372519416028}
   - component: {fileID: 5342067244886826904}
-  - component: {fileID: 2030840555364260198}
   - component: {fileID: 8440042081021463277}
   - component: {fileID: 6562555506069436891}
   - component: {fileID: 269449521994973457}
@@ -6339,7 +6338,7 @@ CapsuleCollider:
   m_Height: 1.8
   m_Direction: 1
   m_Center: {x: 0, y: 0.88, z: 0}
---- !u!114 &8741094267056336468
+--- !u!114 &8095357372519416028
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -6351,14 +6350,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  GlobalObjectIdHash: 2815358811
-  InScenePlacedSourceGlobalObjectIdHash: 1337650023
+  GlobalObjectIdHash: 3567702287
+  InScenePlacedSourceGlobalObjectIdHash: 0
   DeferredDespawnTick: 0
   Ownership: 1
   AlwaysReplicateAsRoot: 0
   SynchronizeTransform: 1
   ActiveSceneSynchronization: 0
-  SceneMigrationSynchronization: 0
+  SceneMigrationSynchronization: 1
   SpawnWithObservers: 1
   DontDestroyWithOwner: 0
   AutoObjectParentSync: 1
@@ -6410,23 +6409,6 @@ MonoBehaviour:
   SwitchTransformSpaceWhenParented: 0
   Interpolate: 1
   SlerpPosition: 0
---- !u!114 &2030840555364260198
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 4777217671088863566}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: f6c0be61502bb534f922ebb746851216, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  ShowTopMostFoldoutHeaderGroup: 1
-  NetworkRigidbodyBaseExpanded: 0
-  UseRigidBodyForMotion: 0
-  AutoUpdateKinematicState: 0
-  AutoSetKinematicOnDespawn: 1
 --- !u!114 &8440042081021463277
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -6440,14 +6422,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   ShowTopMostFoldoutHeaderGroup: 1
-  TransitionStateInfoList:
-  - IsCrossFadeExit: 0
-    Layer: 0
-    OriginatingState: -1446073140
-    DestinationState: 1331344109
-    TransitionDuration: 0.25
-    TriggerNameHash: -1614611405
-    TransitionIndex: 1
+  TransitionStateInfoList: []
   m_Animator: {fileID: 495914775997054023}
 --- !u!114 &6562555506069436891
 MonoBehaviour:
