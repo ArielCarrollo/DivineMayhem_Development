@@ -1,6 +1,5 @@
 using UnityEngine;
-using UnityEngine.UI; // ¡Importante para el Slider!
-using Unity.Netcode;
+using UnityEngine.UI; // Slider
 
 public class PlayerStaminaUI : MonoBehaviour
 {
@@ -10,38 +9,38 @@ public class PlayerStaminaUI : MonoBehaviour
 
     void Start()
     {
-        // Encontrar la cámara principal
         mainCamera = Camera.main;
 
-        // Configurar la barra (usando la propiedad pública que creamos)
-        staminaSlider.maxValue = characterBase.EstaminaMaxima;
-        staminaSlider.value = characterBase.Estamina.Value;
+        if (characterBase == null)
+        {
+            Debug.LogError("PlayerStaminaUI: no hay CharacterBase asignado.");
+            enabled = false;
+            return;
+        }
 
-        // ¡LA MAGIA! Suscribirse al evento de cambio de la NetworkVariable
-        characterBase.Estamina.OnValueChanged += OnStaminaChanged;
+        if (staminaSlider != null)
+        {
+            staminaSlider.maxValue = characterBase.EstaminaMaxima;
+            staminaSlider.value = characterBase.Estamina;
+        }
     }
 
-    // Esta función se llamará SOLA cada vez que Estamina.Value cambie
-    private void OnStaminaChanged(float previousValue, float newValue)
+    void Update()
     {
-        staminaSlider.value = newValue;
+        if (characterBase != null && staminaSlider != null)
+        {
+            staminaSlider.value = characterBase.Estamina;
+        }
     }
 
-    // Efecto "Billboard" para que la UI siempre mire a la cámara
+    // Billboard para mirar a la cámara
     void LateUpdate()
     {
         if (mainCamera == null) return;
 
-        transform.LookAt(transform.position + mainCamera.transform.rotation * Vector3.forward,
-                         mainCamera.transform.rotation * Vector3.up);
-    }
-
-    // Buena práctica: desuscribirse cuando el objeto se destruye
-    void OnDestroy()
-    {
-        if (characterBase != null)
-        {
-            characterBase.Estamina.OnValueChanged -= OnStaminaChanged;
-        }
+        transform.LookAt(
+            transform.position + mainCamera.transform.rotation * Vector3.forward,
+            mainCamera.transform.rotation * Vector3.up
+        );
     }
 }

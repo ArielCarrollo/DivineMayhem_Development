@@ -1,53 +1,45 @@
-using Unity.Netcode;
 using UnityEngine;
-using UnityEngine.InputSystem; 
+using UnityEngine.InputSystem;
+
 public class Ninja : CharacterBase
 {
     [Header("Stats Específicos de Ninja")]
     [SerializeField] private int shurikenCount = 10;
-    [SerializeField] private float velocidadNinja = 8f; 
+    [SerializeField] private float velocidadNinja = 8f;
 
-   
-    public override void OnNetworkSpawn()
+    protected override void Awake()
     {
-        base.OnNetworkSpawn();
-
-        if (IsServer)
-        {
-            this.velocidad = velocidadNinja;
-        }
-    }
-    public virtual void OnSpecialAttack(InputAction.CallbackContext context)
-    {
-        if (!IsOwner) return;
-
-        if (context.performed)
-        {
-            // El cliente pide al servidor que lance un shuriken
-            SpecialAttackServerRpc();
-        }
+        base.Awake();
+        velocidad = velocidadNinja;
     }
 
-    [ServerRpc]
-    private void SpecialAttackServerRpc()
+    public void OnSpecialAttack(InputAction.CallbackContext context)
     {
-        if (shurikenCount > 0)
-        {
-            shurikenCount--;
-            Debug.Log("SERVIDOR: Ninja lanza Shuriken! Quedan: " + shurikenCount);
+        if (!context.performed) return;
+        if (!enabled) return;
 
-            // Lógica de Spawn del Shuriken
-            // GameObject shuriken = Instantiate(shurikenPrefab, ...);
-            // shuriken.GetComponent<NetworkObject>().Spawn(true);
-        }
+        SpecialAttack();
     }
-    [ServerRpc]
-    protected override void UltimateAttackServerRpc()
-    {
-        // 'base.UltimateAttackServerRpc();' // No llamamos al padre (está vacío)
 
-        Debug.Log("SERVIDOR: ¡¡¡ULTI DE NINJA: 'Kage Bunshin no Jutsu'!!!");
-        // Aquí iría la lógica de la ulti del ninja
-        // (Crear clones, volverse invisible, etc.)
+    private void SpecialAttack()
+    {
+        if (shurikenCount <= 0)
+        {
+            Debug.Log("Ninja: No quedan shurikens.");
+            return;
+        }
+
+        shurikenCount--;
+        Debug.Log("Ninja lanza Shuriken! Quedan: " + shurikenCount);
+
+        // Aquí va tu lógica de instanciar el shuriken localmente
+        // GameObject shuriken = Instantiate(shurikenPrefab, ...);
+        // shuriken.GetComponent<Rigidbody>().AddForce(...);
+    }
+
+    protected override void UltimateAttack()
+    {
+        Debug.Log("ULTI DE NINJA: 'Kage Bunshin no Jutsu' (local)");
+        // Aquí iría la lógica de la ulti: clones, invisibilidad, etc.
     }
 }
