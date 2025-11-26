@@ -1,7 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
-using Unity.Netcode; // ¡Importante!
 
 public class PlayerUIPortrait : MonoBehaviour
 {
@@ -12,97 +11,61 @@ public class PlayerUIPortrait : MonoBehaviour
     [SerializeField] private TextMeshProUGUI scoreText;
 
     private CharacterBase targetPlayer;
-    private ulong myPlayerId;
 
     public void Initialize(CharacterBase player)
     {
-        this.targetPlayer = player;
-        this.myPlayerId = player.OwnerClientId; // ¡Guardamos el ID!
+        targetPlayer = player;
 
-        // --- Configuración de Estamina ---
-        staminaSlider.maxValue = targetPlayer.EstaminaMaxima;
-        targetPlayer.Estamina.OnValueChanged += OnStaminaChanged;
-        OnStaminaChanged(0, targetPlayer.Estamina.Value);
+        if (staminaSlider != null)
+        {
+            staminaSlider.maxValue = player.EstaminaMaxima;
+            staminaSlider.value = player.Estamina;
+        }
 
-        // --- Configuración de Nombre ---
+        if (healthSlider != null)
+        {
+            healthSlider.maxValue = player.Vida;
+            healthSlider.value = player.Vida;
+        }
+
         if (playerNameText != null)
         {
-            playerNameText.text = "Player " + (myPlayerId + 1);
+            playerNameText.text = player.name;
         }
 
-        // --- ¡LÓGICA DE SUSCRIPCIÓN MEJORADA! ---
         if (MinigameManager.Instance != null)
         {
-            // ¡Éxito! Nos suscribimos
-            MinigameManager.Instance.PlayerPoints.OnListChanged += OnScoreListChanged;
-            Debug.Log($"PlayerUIPortrait (Player {myPlayerId}): ¡Suscripción a puntos EXITOSA!");
-
-            // Actualizamos el puntaje una vez al inicio
+            MinigameManager.Instance.OnPlayerPointsChanged += UpdateScoreText;
             UpdateScoreText();
         }
-        else
-        {
-            // ¡Fracaso! Si ves esto, el Script Execution Order está mal.
-            Debug.LogError($"PlayerUIPortrait (Player {myPlayerId}): ¡FALLO DE SUSCRIPCIÓN! MinigameManager.Instance era NULL.");
-        }
     }
 
-    /// <summary>
-    /// Esta función se llamará AUTOMÁTICAMENTE en todos los clientes
-    /// cada vez que el servidor cambie la lista de puntajes.
-    /// </summary>
-    private void OnScoreListChanged(NetworkListEvent<PlayerScore> changeEvent)
+    private void Update()
     {
-        // No importa qué cambió, volvemos a buscar nuestro puntaje
-        UpdateScoreText();
+        if (targetPlayer == null) return;
+
+        if (staminaSlider != null)
+            staminaSlider.value = targetPlayer.Estamina;
+
+        if (healthSlider != null)
+            healthSlider.value = targetPlayer.Vida;
     }
 
-    /// <summary>
-    /// Una función "ayudante" para buscar y actualizar nuestro texto de puntaje
-    /// </summary>
     private void UpdateScoreText()
     {
-        if (MinigameManager.Instance == null || scoreText == null) return;
+        if (MinigameManager.Instance == null || scoreText == null || targetPlayer == null)
+            return;
 
-        int currentScore = MinigameManager.Instance.GetPlayerScore(myPlayerId);
-
-        Debug.Log($"UI (Retrato del Player {myPlayerId}): Tiene {currentScore} puntos.");
-        scoreText.text = "Puntos: " + currentScore.ToString();
-
-        // Truco: Forzar actualización visual por si acaso
+        int currentScore = MinigameManager.Instance.GetPlayerScore(targetPlayer);
+        scoreText.text = "Puntos: " + currentScore;
         scoreText.SetAllDirty();
     }
 
-
-    // --- ¡HEMOS ELIMINADO LA FUNCIÓN Update() COMPLETAMENTE! ---
-    // (Ya no la necesitamos)
-
-
-    // --- Funciones de Estamina/Vida (Siguen igual) ---
-    private void OnStaminaChanged(float previousValue, float newValue)
-    {
-        staminaSlider.value = newValue;
-    }
-
-    private void OnHealthChanged(int previousValue, int newValue)
-    {
-        healthSlider.value = newValue;
-    }
-
-    // --- Limpieza (¡IMPORTANTE!) ---
     private void OnDestroy()
     {
-        // Nos desuscribimos de todo
-        if (targetPlayer != null)
-        {
-            targetPlayer.Estamina.OnValueChanged -= OnStaminaChanged;
-            // targetPlayer.Vida.OnValueChanged -= OnHealthChanged;
-        }
-
-        // ¡No olvides desuscribirte de la lista también!
         if (MinigameManager.Instance != null)
         {
-            MinigameManager.Instance.PlayerPoints.OnListChanged -= OnScoreListChanged;
+            MinigameManager.Instance.OnPlayerPointsChanged -= UpdateScoreText;
         }
     }
 }

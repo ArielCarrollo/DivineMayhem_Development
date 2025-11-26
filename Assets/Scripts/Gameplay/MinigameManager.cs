@@ -1,157 +1,115 @@
 using UnityEngine;
-using Unity.Netcode;
 using System.Collections;
 using System.Collections.Generic;
-using UnityEngine.SceneManagement;
 
-public struct PlayerScore : INetworkSerializable, System.IEquatable<PlayerScore>
+[System.Serializable]
+public class MinigameScoreEntry
 {
-    public ulong PlayerId;
-    public int Score;
-
-    public void NetworkSerialize<T>(BufferSerializer<T> serializer) where T : IReaderWriter
-    {
-        serializer.SerializeValue(ref PlayerId);
-        serializer.SerializeValue(ref Score);
-    }
-
-    public bool Equals(PlayerScore other)
-    {
-        
-        return PlayerId == other.PlayerId && Score == other.Score;
-    }
+    public CharacterBase player;
+    public int score;
 }
-public class MinigameManager : NetworkBehaviour
+
+public class MinigameManager : MonoBehaviour
 {
     public static MinigameManager Instance { get; private set; }
 
     [Header("Condiciones de Victoria")]
-    [SerializeField] private int scoreToWin = 100; // Meta de puntos
+    [SerializeField] private int scoreToWin = 100;
     [SerializeField] private string nextSceneName = "SurvivalLava";
     [SerializeField] private IntermissionUI intermissionPanel;
 
     [SerializeField, Tooltip("Puntos por segundo por tener la corona")]
     private int pointsPerSecond = 1;
 
-    public bool isGameEnded = false;
-    public NetworkVariable<ulong> CurrentKingId = new NetworkVariable<ulong>(999);
-    public NetworkList<PlayerScore> PlayerPoints = new NetworkList<PlayerScore>();
-    private NetworkVariable<int> playersReadyCount = new NetworkVariable<int>(0);
-
-    private Dictionary<ulong, CharacterBase> playerList = new Dictionary<ulong, CharacterBase>();
     [Header("Sistema de Mapas (Sin cambio de escena)")]
-    [SerializeField] private GameObject mapCorona; // Arrastra el objeto Map_Corona
-    [SerializeField] private GameObject mapLava;   // Arrastra el objeto Map_Lava
+    [SerializeField] private GameObject mapCorona;
+    [SerializeField] private GameObject mapLava;
     [SerializeField] private Transform[] lavaSpawnPoints;
+
+    public bool isGameEnded = false;
+
+    private List<CharacterBase> playerList = new List<CharacterBase>();
+    public List<MinigameScoreEntry> PlayerPoints = new List<MinigameScoreEntry>();
+
+    public System.Action OnPlayerPointsChanged;
+
+    private CharacterBase currentKing;
+    private int playersReadyCount = 0;
+
     private void Awake()
     {
-        if (Instance != null) { Destroy(gameObject); }
-        else { Instance = this; }
+        if (Instance != null && Instance != this)
+        {
+            Destroy(gameObject);
+        }
+        else
+        {
+            Instance = this;
+        }
     }
 
+    private void Start()
+    {
+        StartCoroutine(PointAwardCoroutine());
+    }
+
+    /// <summary>
+    /// Llama esto desde donde instancias / activas a los players en el minijuego de la corona.
+    /// </summary>
     public void RegisterPlayer(CharacterBase player)
     {
-        if (!IsServer) return;
+        if (player == null) return;
 
-        ulong playerID = player.OwnerClientId;
-
-        if (!playerList.ContainsKey(playerID))
+        if (!playerList.Contains(player))
         {
-            playerList.Add(playerID, player);
-            Debug.Log($"MinigameManager: Player {playerID} registrado.");
+            playerList.Add(player);
+            PlayerPoints.Add(new MinigameScoreEntry { player = player, score = 0 });
+            Debug.Log($"MinigameManager: Player {player.name} registrado.");
 
-            PlayerPoints.Add(new PlayerScore { PlayerId = playerID, Score = 0 });
-        }
-
-        if (CurrentKingId.Value == 999 || !playerList.ContainsKey(CurrentKingId.Value))
-        {
-            Debug.Log("MinigameManager: No había rey. ¡El nuevo jugador es el Rey!");
-            TransferCrown(player);
+            // Si aún no hay rey, este se vuelve rey
+            if (currentKing == null)
+            {
+                TransferCrown(player);
+            }
         }
     }
 
     public void UnregisterPlayer(CharacterBase player)
     {
-        if (!IsServer) return;
+        if (player == null) return;
 
-        ulong playerID = player.OwnerClientId;
-        if (playerList.ContainsKey(playerID))
+        if (playerList.Contains(player))
+            playerList.Remove(player);
+
+        PlayerPoints.RemoveAll(p => p.player == player);
+
+        if (currentKing == player)
         {
-            playerList.Remove(playerID);
+            currentKing.IsKing = false;
+            currentKing = null;
         }
-
-        if (CurrentKingId.Value == playerID)
-        {
-            CurrentKingId.Value = 999;
-        }
-    }
-
-    public override void OnNetworkSpawn()
-    {
-
-        Debug.Log("MinigameManager: ¡OnNetworkSpawn EJECUTADO! Soy Servidor? " + IsServer);
-
-        if (!IsServer) return;
-
-        StartCoroutine(PointAwardCoroutine());
-        playersReadyCount.OnValueChanged += OnReadyCountChanged;
-    }
-   
-    private IEnumerator StartMinigameDelay()
-    {
-        yield return new WaitForSeconds(3.0f);
-
-        if (playerList.Count > 0)
-        {
-            List<CharacterBase> players = new List<CharacterBase>(playerList.Values);
-            CharacterBase firstKing = players[0];
-
-            if (firstKing != null)
-            {
-                TransferCrown(firstKing);
-            }
-        }
-        else
-        {
-            Debug.LogError("MinigameManager: ¡No hay jugadores registrados! No se puede asignar la corona.");
-        }
-
-        StartCoroutine(PointAwardCoroutine());
     }
 
     public void TransferCrown(CharacterBase newKing)
     {
-        if (!IsServer) return;
         if (newKing == null) return;
 
-        ulong newKingId = newKing.OwnerClientId;
+        if (currentKing != null)
+            currentKing.IsKing = false;
 
-        // Apaga la corona del rey anterior
-        if (playerList.TryGetValue(CurrentKingId.Value, out CharacterBase oldKing))
-        {
-            if (oldKing != null)
-            {
-                oldKing.IsKing.Value = false;
-            }
-        }
+        currentKing = newKing;
+        currentKing.IsKing = true;
 
-        // Enciende la corona del nuevo rey
-        newKing.IsKing.Value = true;
-
-        // Actualiza el ID del rey
-        CurrentKingId.Value = newKingId;
-        Debug.Log($"Servidor: ¡La corona pasa a Player {newKingId}!");
+        Debug.Log($"MinigameManager: ¡La corona pasa a {newKing.name}!");
     }
-
 
     private IEnumerator PointAwardCoroutine()
     {
-        Debug.Log("MinigameManager: Esperando a que haya al menos 2 jugadores...");
+        Debug.Log("MinigameManager: Esperando a que haya al menos 1 jugador...");
 
-        // Mientras haya menos de 2 clientes conectados, esperamos.
-        while (NetworkManager.Singleton.ConnectedClients.Count < 2)
+        while (playerList.Count == 0)
         {
-            yield return new WaitForSeconds(1.0f); // Revisa cada segundo
+            yield return new WaitForSeconds(1.0f);
         }
 
         Debug.Log("MinigameManager: ¡Jugadores listos! Comienza la puntuación.");
@@ -160,64 +118,42 @@ public class MinigameManager : NetworkBehaviour
         {
             yield return new WaitForSeconds(1.0f);
 
-            ulong kingId = CurrentKingId.Value;
+            if (currentKing == null)
+                continue;
 
-            // Si no hay rey valido (999), esperamos
-            if (kingId == 999) continue;
-
-            bool scoreUpdated = false;
-
-            // Buscamos al rey en la lista de puntajes
-            for (int i = 0; i < PlayerPoints.Count; i++)
+            var entry = PlayerPoints.Find(e => e.player == currentKing);
+            if (entry != null)
             {
-                if (PlayerPoints[i].PlayerId == kingId)
+                entry.score += pointsPerSecond;
+                OnPlayerPointsChanged?.Invoke();
+
+                if (entry.score >= scoreToWin)
                 {
-                    PlayerScore score = PlayerPoints[i];
-                    score.Score += pointsPerSecond;
-                    PlayerPoints[i] = score; // Esto actualiza la UI
-                    scoreUpdated = true;
-
-                    if (score.Score >= scoreToWin)
-                    {
-                        EndMinigame(kingId); // ¡Alguien ganó!
-                    }
-
-                    break;
+                    EndMinigame(currentKing);
                 }
-            }
-
-            if (!scoreUpdated)
-            {
-                Debug.LogWarning($"Auto-Repair: Creando puntaje para el Rey {kingId}");
-                PlayerPoints.Add(new PlayerScore { PlayerId = kingId, Score = pointsPerSecond });
             }
         }
     }
-    private void EndMinigame(ulong winnerId)
+
+    private void EndMinigame(CharacterBase winner)
     {
-        if (!IsServer) return;
         if (isGameEnded) return;
-
         isGameEnded = true;
-        Debug.Log($"¡JUEGO TERMINADO! Ganador: Player {winnerId}");
 
-        
+        Debug.Log($"¡JUEGO TERMINADO! Ganador: {winner.name}");
+
         if (GlobalGameManager.Instance != null)
         {
             foreach (var localScore in PlayerPoints)
             {
-                GlobalGameManager.Instance.AddPointsToGlobal(localScore.PlayerId, localScore.Score);
+                GlobalGameManager.Instance.AddPointsToGlobal(localScore.player, localScore.score);
             }
         }
-        else
-        {
-            Debug.LogError("¡ERROR CRÍTICO! No existe GlobalGameManager.");
-        }
-        ShowIntermissionClientRpc();
+
+        ShowIntermission();
     }
 
-    [ClientRpc]
-    private void ShowIntermissionClientRpc()
+    private void ShowIntermission()
     {
         if (intermissionPanel == null)
         {
@@ -226,109 +162,78 @@ public class MinigameManager : NetworkBehaviour
 
         if (intermissionPanel != null)
         {
-            Debug.Log("CLIENTE: ¡Panel encontrado y activado!");
             intermissionPanel.gameObject.SetActive(true);
         }
-        else
-        {
-            Debug.LogError("CLIENTE: ¡SOCORRO! No encuentro el 'PanelResultados' en la escena.");
-            return; 
-        }
 
-        if (UIManager.Instance != null) UIManager.Instance.SetGameHUDActive(false);
+        if (UIManager.Instance != null)
+            UIManager.Instance.SetGameHUDActive(false);
 
-        var localPlayer = NetworkManager.Singleton.LocalClient.PlayerObject;
-        if (localPlayer != null && localPlayer.TryGetComponent<CharacterBase>(out var character))
+        // congelar a todos
+        foreach (var p in playerList)
         {
-            character.SetInputActive(false); // ¡Congelado!
+            if (p != null)
+                p.SetInputActive(false);
         }
     }
+
     public void ClientIsReady()
     {
-        PlayerReadyServerRpc();
-    }
-    [ServerRpc(RequireOwnership = false)]
-    private void PlayerReadyServerRpc(ServerRpcParams rpcParams = default)
-    {
-        playersReadyCount.Value++;
-        Debug.Log($"Jugadores listos: {playersReadyCount}");
+        playersReadyCount++;
 
-        int totalPlayers = NetworkManager.Singleton.ConnectedClients.Count;
-
-        if (playersReadyCount.Value >= totalPlayers)
+        if (intermissionPanel != null)
         {
-            Debug.Log("¡Todos listos! Cambiando al mapa de Lava...");
+            intermissionPanel.UpdateReadyCount(playersReadyCount, playerList.Count);
+        }
 
-            // EN LUGAR DE LOAD SCENE, LLAMAMOS A ESTO:
+        if (playersReadyCount >= playerList.Count && playerList.Count > 0)
+        {
+            Debug.Log("Todos listos. Cambiando al mapa de Lava...");
             SwitchToLavaMap();
         }
     }
+
     private void SwitchToLavaMap()
     {
-        // 1. Apagar Mapa Viejo / Prender Nuevo (RPC para que todos lo vean)
-        ToggleMapsClientRpc();
+        // Esconder panel de resultados
+        if (intermissionPanel != null)
+            intermissionPanel.gameObject.SetActive(false);
 
-        // 2. Teletransportar a los Jugadores
-        int index = 0;
-        foreach (var client in NetworkManager.Singleton.ConnectedClientsList)
-        {
-            if (client.PlayerObject != null && client.PlayerObject.TryGetComponent<CharacterBase>(out var playerScript))
-            {
-                // Usamos el spawn point correspondiente (o el 0 si faltan)
-                Vector3 spawnPos = lavaSpawnPoints[index % lavaSpawnPoints.Length].position;
+        // Mostrar HUD
+        if (UIManager.Instance != null)
+            UIManager.Instance.SetGameHUDActive(true);
 
-                // Llamamos a la función nueva del CharacterBase
-                playerScript.ServerTeleport(spawnPos);
-
-                index++;
-            }
-        }
-
-        // 3. Opcional: Iniciar la lógica del juego de Lava
-        // Aquí podrías activar el 'SurvivalGameManager' si lo tienes en la escena pero apagado.
-        // O simplemente cambiar el estado de este mismo Manager.
-    }
-
-    [ClientRpc]
-    private void ToggleMapsClientRpc()
-    {
-        // Esconder UI de resultados
-        if (intermissionPanel != null) intermissionPanel.gameObject.SetActive(false);
-
-        // Mostrar HUD de juego
-        if (UIManager.Instance != null) UIManager.Instance.SetGameHUDActive(true);
-
-        // Cambiar los mapas visualmente
+        // Cambiar mapas
         if (mapCorona != null) mapCorona.SetActive(false);
         if (mapLava != null) mapLava.SetActive(true);
-    }
 
-    public int GetPlayerScore(ulong playerId)
-    {
-        // Busca al jugador en la lista de puntajes
-        foreach (PlayerScore scoreEntry in PlayerPoints)
+        // Teletransportar y reactivar jugadores
+        for (int i = 0; i < playerList.Count; i++)
         {
-            if (scoreEntry.PlayerId == playerId)
+            var player = playerList[i];
+            if (player == null) continue;
+
+            Vector3 spawnPos = (lavaSpawnPoints != null && lavaSpawnPoints.Length > 0)
+                ? lavaSpawnPoints[i % lavaSpawnPoints.Length].position
+                : player.transform.position;
+
+            player.ServerTeleport(spawnPos);  // usa el ServerTeleport local que te di en CharacterBase
+            player.SetInputActive(true);
+        }
+
+        // Registrar jugadores en SurvivalGameManager (si está en escena)
+        var survival = FindObjectOfType<SurvivalGameManager>();
+        if (survival != null)
+        {
+            foreach (var p in playerList)
             {
-                return scoreEntry.Score; // Devuelve su puntaje
+                survival.RegisterPlayer(p);
             }
         }
-
-        // Si no lo encuentra, devuelve 0
-        return 0;
-    }
-    private void OnReadyCountChanged(int previous, int current)
-    {
-        if (intermissionPanel != null && intermissionPanel.gameObject.activeSelf)
-        {
-            int total = NetworkManager.Singleton.ConnectedClients.Count;
-            // Actualizamos el texto del botón
-            intermissionPanel.UpdateReadyCount(current, total);
-        }
     }
 
-    public override void OnNetworkDespawn()
+    public int GetPlayerScore(CharacterBase player)
     {
-        playersReadyCount.OnValueChanged -= OnReadyCountChanged;
+        var entry = PlayerPoints.Find(e => e.player == player);
+        return entry != null ? entry.score : 0;
     }
 }

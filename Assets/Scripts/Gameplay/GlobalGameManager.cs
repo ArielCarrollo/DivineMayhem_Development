@@ -1,29 +1,37 @@
 ﻿using UnityEngine;
-using Unity.Netcode;
-using UnityEngine.SceneManagement; // Necesario para cambiar escenas
+using UnityEngine.SceneManagement;
+using System.Collections.Generic;
 
-public class GlobalGameManager : NetworkBehaviour
+[System.Serializable]
+public class GlobalScoreEntry
+{
+    public string playerName;
+    public int score;
+}
+
+public class GlobalGameManager : MonoBehaviour
 {
     public static GlobalGameManager Instance { get; private set; }
 
-    // Aquí guardamos la suma total de TODOS los minijuegos
-    public NetworkList<PlayerScore> GlobalScores = new NetworkList<PlayerScore>();
+    // Suma total de TODOS los minijuegos
+    public List<GlobalScoreEntry> GlobalScores = new List<GlobalScoreEntry>();
+
     [Header("Configuración de Escenas")]
-    [SerializeField] private string mainMenuSceneName = "MainMenu"; // Pon aquí el nombre exacto de tu escena de menú
+    [SerializeField] private string mainMenuSceneName = "MainMenu";
     [SerializeField] private string firstMinigameSceneName = "GameVegui";
+
     private void Awake()
     {
-        // 1. Lógica Singleton clásica: Solo puede haber uno
         if (Instance != null && Instance != this)
         {
             Destroy(gameObject);
             return;
         }
         Instance = this;
-        DontDestroyOnLoad(gameObject); // ¡Sobrevive al cambio de escena!
+        DontDestroyOnLoad(gameObject);
     }
 
-   private void OnEnable()
+    private void OnEnable()
     {
         SceneManager.sceneLoaded += OnSceneLoaded;
     }
@@ -32,13 +40,7 @@ public class GlobalGameManager : NetworkBehaviour
     {
         SceneManager.sceneLoaded -= OnSceneLoaded;
     }
-    public override void OnNetworkSpawn()
-    {
-        // Este código se ejecuta justo DESPUÉS de que presionas "Start Host".
-        // Aquí IsServer YA es verdadero.
 
-        CheckAndClearScores();
-    }
     private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
         if (scene.name == mainMenuSceneName)
@@ -49,17 +51,13 @@ public class GlobalGameManager : NetworkBehaviour
 
         CheckAndClearScores();
     }
+
     private void CheckAndClearScores()
     {
-        // Solo el servidor puede limpiar la lista
-        if (!IsServer) return;
-
         string currentScene = SceneManager.GetActiveScene().name;
 
-        // --- DEBUG PARA ENCONTRAR EL ERROR ---
         Debug.Log($"[GLOBAL MANAGER] Estoy en escena: '{currentScene}'. Espero: '{firstMinigameSceneName}'");
 
-        // Si estamos en la escena del primer minijuego...
         if (currentScene == firstMinigameSceneName)
         {
             Debug.Log("✅ ¡NOMBRES COINCIDEN! Limpiando puntajes globales para TODOS.");
@@ -70,42 +68,43 @@ public class GlobalGameManager : NetworkBehaviour
             Debug.LogWarning("❌ NOMBRES NO COINCIDEN. No se borrarán los puntos.");
         }
     }
-    public void AddPointsToGlobal(ulong playerId, int pointsToAdd)
+
+    public void AddPointsToGlobal(CharacterBase player, int pointsToAdd)
     {
-        if (!IsServer) return;
+        if (player == null) return;
 
-        bool found = false;
-        for (int i = 0; i < GlobalScores.Count; i++)
+        string name = player.name;
+        if (string.IsNullOrWhiteSpace(name))
+            name = "Player";
+
+        var entry = GlobalScores.Find(e => e.playerName == name);
+        if (entry != null)
         {
-            if (GlobalScores[i].PlayerId == playerId)
-            {
-                PlayerScore current = GlobalScores[i];
-                current.Score += pointsToAdd; // Sumamos al acumulado
-                GlobalScores[i] = current;
-                found = true;
-                break;
-            }
+            entry.score += pointsToAdd;
         }
-
-        if (!found)
+        else
         {
-            GlobalScores.Add(new PlayerScore { PlayerId = playerId, Score = pointsToAdd });
+            GlobalScores.Add(new GlobalScoreEntry
+            {
+                playerName = name,
+                score = pointsToAdd
+            });
         }
     }
 
+    public int GetGlobalScore(string playerName)
+    {
+        var entry = GlobalScores.Find(e => e.playerName == playerName);
+        return entry != null ? entry.score : 0;
+    }
+
+    public IReadOnlyList<GlobalScoreEntry> GetAllScores()
+    {
+        return GlobalScores;
+    }
 
     public void LoadNextMinigame(string sceneName)
     {
-        if (!IsServer) return;
-
-        NetworkManager.Singleton.SceneManager.LoadScene(sceneName, LoadSceneMode.Single);
-    }
-    public int GetGlobalScore(ulong playerId)
-    {
-        foreach (var score in GlobalScores)
-        {
-            if (score.PlayerId == playerId) return score.Score;
-        }
-        return 0;
+        SceneManager.LoadScene(sceneName, LoadSceneMode.Single);
     }
 }

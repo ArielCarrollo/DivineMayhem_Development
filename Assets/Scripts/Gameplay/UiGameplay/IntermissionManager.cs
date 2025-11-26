@@ -1,7 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
-using Unity.Netcode;
 
 public class IntermissionUI : MonoBehaviour
 {
@@ -15,79 +14,77 @@ public class IntermissionUI : MonoBehaviour
 
     private void OnEnable()
     {
-        UpdateRankingDisplay();
+        if (readyButton != null)
+        {
+            readyButton.interactable = true;
+            readyButton.onClick.AddListener(OnReadyClicked);
+        }
 
-        readyButton.interactable = true;
-        readyButton.onClick.AddListener(OnReadyClicked);
         isReady = false;
         if (buttonText) buttonText.text = "¡LISTO!";
         if (statusText) statusText.text = "¡Presiona LISTO para continuar!";
-        if (GlobalGameManager.Instance != null)
-        {
-            // 1. Mostrar lo que haya inmediatamente (por si ya llegó la data)
-            UpdateRankingDisplay();
 
-            // 2. Suscribirse para actualizar si la data llega después
-            // Nos suscribimos al evento OnListChanged de la lista global
-            GlobalGameManager.Instance.GlobalScores.OnListChanged += OnGlobalScoresChanged;
-        }
+        UpdateRankingDisplay();
     }
 
     private void OnDisable()
     {
-        readyButton.onClick.RemoveListener(OnReadyClicked);
-        if (GlobalGameManager.Instance != null)
-        {
-            GlobalGameManager.Instance.GlobalScores.OnListChanged -= OnGlobalScoresChanged;
-        }
+        if (readyButton != null)
+            readyButton.onClick.RemoveListener(OnReadyClicked);
+    }
 
-    }
-    private void OnGlobalScoresChanged(NetworkListEvent<PlayerScore> changeEvent)
-    {
-        UpdateRankingDisplay();
-    }
     private void UpdateRankingDisplay()
     {
-        if (GlobalGameManager.Instance == null || rankingText == null) return;
+        if (rankingText == null || GlobalGameManager.Instance == null)
+            return;
 
+        var scores = GlobalGameManager.Instance.GetAllScores();
         string ranking = "RANKING GLOBAL:\n\n";
 
-        if (GlobalGameManager.Instance.GlobalScores.Count == 0)
+        if (scores == null || scores.Count == 0)
         {
             ranking += "Cargando puntajes...";
         }
         else
         {
-            // Recorremos la lista y la mostramos
-            foreach (var score in GlobalGameManager.Instance.GlobalScores)
+            foreach (var entry in scores)
             {
-                ranking += $"Player {score.PlayerId}: {score.Score} Pts\n";
+                ranking += $"{entry.playerName}: {entry.score} pts\n";
             }
         }
 
         rankingText.text = ranking;
         rankingText.SetAllDirty();
     }
+
     public void UpdateReadyCount(int current, int total)
     {
         if (buttonText != null)
         {
-            // Ejemplo: "Esperando... (1/3)"
             buttonText.text = $"Esperando... ({current}/{total})";
         }
     }
+
     private void OnReadyClicked()
     {
         if (isReady) return;
 
         isReady = true;
-        readyButton.interactable = false; // Desactivar para no spamear
+        if (readyButton != null)
+            readyButton.interactable = false;
+
         if (statusText) statusText.text = "Esperando a los demás...";
         if (buttonText) buttonText.text = "Enviando...";
-        // Avisamos al MinigameManager que estamos listos
+
+        // Minijuego de corona
         if (MinigameManager.Instance != null)
         {
             MinigameManager.Instance.ClientIsReady();
+        }
+        // Supervivencia
+        else if (SurvivalGameManager.Instance != null)
+        {
+            SurvivalGameManager.Instance.ClientIsReady();
         }
     }
 }
