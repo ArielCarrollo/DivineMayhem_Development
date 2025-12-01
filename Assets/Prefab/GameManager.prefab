@@ -74,10 +74,9 @@ MonoBehaviour:
   ShowTopMostFoldoutHeaderGroup: 1
   playerPrefab: {fileID: 4407747363217498156, guid: 329da1f2c3e120348815e2118fd44b97, type: 3}
   availableMapNames:
-  - CrownCatching
+  - Crown Catching
   - Falling Floor
   - Crazy Ball
-  - Race
   currentMapIndex:
     m_InternalValue: 0
   baseXpToLevelUp: 100

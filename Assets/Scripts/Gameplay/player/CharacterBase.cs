@@ -1,8 +1,9 @@
+using System.Collections;
 using Unity.Netcode;
 using Unity.Netcode.Components;
 using UnityEngine;
 using UnityEngine.InputSystem;
-using System.Collections;
+using static Sirenix.OdinInspector.Editor.Internal.FastDeepCopier;
 public enum PlayerState
 {
     Normal,
@@ -17,60 +18,58 @@ public enum PlayerState
 public abstract class CharacterBase : NetworkBehaviour
 {
     [Header("Stats Base del Personaje")]
-    [SerializeField] protected float velocidad = 5f;
+    [SerializeField] protected float velocidad = 8f; // Aumentado ligeramente para compensar la aceleración
     [SerializeField] protected int vidaMaxima = 100;
     [SerializeField] protected int fuerzaBase = 10;
     [SerializeField] protected int nivelBase = 1;
     [SerializeField] protected float estaminaMaxima = 100f;
 
-    [Header("Lógica de Estamina")]
-    [SerializeField, Tooltip("Cuánta estamina se recarga por segundo")]
-    private float staminaChargeRate = 20f;
+    // --- NUEVO: FÍSICAS DE MOVIMIENTO ---
+    [Header("Fluidez de Movimiento (Physics)")]
+    [SerializeField, Tooltip("Qué tan rápido alcanza la velocidad máxima")]
+    private float acceleration = 60f;
+    [SerializeField, Tooltip("Qué tan rápido frena al soltar el input")]
+    private float deceleration = 40f;
+    [SerializeField, Tooltip("Control en el aire (0 a 1). 1 es igual que en suelo.")]
+    private float airControlMultiplier = 0.5f;
+    [SerializeField, Tooltip("Multiplicador de gravedad para caer más rápido (sensación de peso)")]
+    private float fallMultiplier = 2.5f;
+    // ------------------------------------
 
+    [Header("Lógica de Estamina")]
+    [SerializeField] private float staminaChargeRate = 20f;
     private Coroutine chargingCoroutine;
 
     [Header("Lógica de Movimiento")]
-    [SerializeField, Tooltip("Qué tan rápido gira el personaje (más alto es más rápido)")]
-    private float rotationSpeed = 15f;
+    [SerializeField] private float rotationSpeed = 20f; // Más rápido para respuesta instantánea visual
 
     [Header("Lógica de Salto")]
-    [SerializeField] private float jumpForce = 7f;
+    [SerializeField] private float jumpForce = 15f; // Ajustado para trabajar con la nueva gravedad
     [SerializeField] private Transform groundCheck;
     [SerializeField] private LayerMask groundMask;
     [SerializeField] private float groundDistance = 0.3f;
 
     [Header("Configuración de Minijuego")]
-    [SerializeField, Tooltip("El GameObject de la corona (hijo de este prefab)")]
-    private GameObject crownVisual;
+    [SerializeField] private GameObject crownVisual;
 
     [Header("Componentes")]
     protected Rigidbody rb;
     protected Animator animator;
 
     [Header("Lógica de Ataque Básico")]
-    [SerializeField, Tooltip("El punto en la mano que detecta el golpe")]
-    private Transform hitPoint;
-
-    [SerializeField, Tooltip("El radio del golpe (qué tan grande es el 'puño')")]
-    private float hitRadius = 0.5f;
-
-    [SerializeField, Tooltip("La fuerza con la que el puñete lanza objetos")]
-    private float punchForce = 15f;
-
-    [SerializeField, Tooltip("Qué capas (Layers) pueden ser golpeadas por el puñete")]
-    private LayerMask hitableLayers;
-    [SerializeField, Tooltip("Segundos desde que se presiona el botón hasta que se registra el golpe")]
-    private float attackDelay = 0.3f; 
-    [SerializeField, Tooltip("Tiempo total entre un ataque y el siguiente (cooldown)")]
-    private float attackCooldown = 0.8f; 
+    [SerializeField] private Transform hitPoint;
+    [SerializeField] private float hitRadius = 0.5f;
+    [SerializeField] private float punchForce = 15f;
+    [SerializeField] private LayerMask hitableLayers;
+    [SerializeField] private float attackDelay = 0.1f; // Más responsivo
+    [SerializeField] private float attackCooldown = 0.5f;
     private float nextAttackTime = 0f;
 
     [Header("Lógica de Knockback")]
-    [SerializeField, Tooltip("Segundos que el jugador queda en estado 'Knockback'")]
-    private float knockbackDuration = 0.5f;
-    [SerializeField, Tooltip("La fuerza vertical (hacia arriba) fija del golpe")]
-    private float verticalKnockup = 7f;
+    [SerializeField] private float knockbackDuration = 0.5f;
+    [SerializeField] private float verticalKnockup = 7f;
 
+    // Network Variables
     public NetworkVariable<bool> IsKing = new NetworkVariable<bool>(false);
     public NetworkVariable<PlayerState> CurrentState = new NetworkVariable<PlayerState>(PlayerState.Normal);
     public NetworkVariable<int> Vida = new NetworkVariable<int>();
@@ -83,14 +82,17 @@ public abstract class CharacterBase : NetworkBehaviour
 
     private float serverMoveInput;
     private bool serverIsGrounded;
-
     private float clientMoveInput;
-
 
     protected virtual void Awake()
     {
         rb = GetComponent<Rigidbody>();
         animator = GetComponent<Animator>();
+
+        // --- NUEVO: Configuración de Rigidbody para evitar deslizamientos raros ---
+        rb.constraints = RigidbodyConstraints.FreezePositionZ | RigidbodyConstraints.FreezeRotation;
+        rb.interpolation = RigidbodyInterpolation.Interpolate; // Suaviza visualmente
+        rb.collisionDetectionMode = CollisionDetectionMode.Continuous;
     }
 
     public override void OnNetworkSpawn()
@@ -228,13 +230,10 @@ public abstract class CharacterBase : NetworkBehaviour
     public void SetInputActive(bool isActive)
     {
         controlsEnabled = isActive;
-
         if (!isActive && rb != null)
         {
             rb.linearVelocity = Vector3.zero;
-            rb.angularVelocity = Vector3.zero;
-            serverMoveInput = 0; // Resetear input del servidor
-
+            serverMoveInput = 0;
             if (animator) animator.SetFloat("Speed", 0);
         }
     }
@@ -302,13 +301,13 @@ public abstract class CharacterBase : NetworkBehaviour
     {
         if (serverIsGrounded)
         {
+            // Resetear velocidad Y para que el salto sea consistente incluso si bajabas una pendiente
+            rb.linearVelocity = new Vector3(rb.linearVelocity.x, 0, 0);
             rb.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
-
-            // ¡NUEVO! Dispara el trigger de animación
             animator.SetTrigger("Jump");
         }
     }
-   
+
     [Rpc(SendTo.Server)]
     protected virtual void NormalAttackServerRpc()
     {
@@ -368,7 +367,8 @@ public abstract class CharacterBase : NetworkBehaviour
     protected virtual void Update()
     {
         if (!IsOwner) return;
-
+        // Optimización: Solo enviar RPC si hay un cambio significativo o cada X frames podría ser mejor, 
+        // pero por ahora lo dejamos en Update para responsividad.
         UpdateServerMovementRpc(clientMoveInput);
     }
 
@@ -381,27 +381,67 @@ public abstract class CharacterBase : NetworkBehaviour
         if (CurrentState.Value == PlayerState.Normal)
         {
             HandleMovementAndRotation();
+            ApplyBetterGravity(); // --- NUEVO ---
         }
+        else if (CurrentState.Value == PlayerState.Knockback)
+        {
+            ApplyBetterGravity(); // Aplicar gravedad también en knockback
+        }
+
+        // Animaciones
         float currentSpeed = Mathf.Abs(rb.linearVelocity.x);
         animator.SetFloat("Speed", currentSpeed);
         animator.SetBool("IsGrounded", serverIsGrounded);
     }
 
+    // --- AQUÍ ESTÁ LA MAGIA DE LA FLUIDEZ ---
     private void HandleMovementAndRotation()
     {
-        rb.linearVelocity = new Vector3(serverMoveInput * velocidad, rb.linearVelocity.y, 0f);
+        // 1. Calcular velocidad objetivo
+        float targetSpeed = serverMoveInput * velocidad;
 
-        if (serverMoveInput != 0) 
+        // 2. Definir tasa de cambio (Aceleración vs Deceleración)
+        // Si el jugador quiere moverse (input != 0) usamos aceleración.
+        // Si el jugador suelta (input == 0) o cambia de dirección, usamos deceleración (fricción).
+        float speedDiff = targetSpeed - rb.linearVelocity.x;
+        float accelRate = (Mathf.Abs(targetSpeed) > 0.01f) ? acceleration : deceleration;
+
+        // Si estamos en el aire, aplicamos el multiplicador de control aéreo
+        if (!serverIsGrounded)
         {
- 
+            accelRate *= airControlMultiplier;
+        }
+
+        // 3. Aplicar movimiento suavizado (Mathf.MoveTowards)
+        // Esto evita el "snapping" instantáneo
+        float newSpeedX = Mathf.MoveTowards(rb.linearVelocity.x, targetSpeed, accelRate * Time.fixedDeltaTime);
+
+        rb.linearVelocity = new Vector3(newSpeedX, rb.linearVelocity.y, 0f);
+
+        // 4. Rotación (Visual)
+        // Solo rotamos si hay input significativo, no basado en velocidad residual (para evitar giros raros al frenar)
+        if (Mathf.Abs(serverMoveInput) > 0.1f)
+        {
             Quaternion targetRotation = (serverMoveInput > 0)
                                         ? Quaternion.Euler(0, 90, 0)
                                         : Quaternion.Euler(0, -90, 0);
 
-            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, Time.fixedDeltaTime * rotationSpeed);
+            // Usamos RotateTowards para una rotación más lineal y controlada que Slerp
+            transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, rotationSpeed * Time.fixedDeltaTime * 10f);
         }
+    }
 
-      
+    // --- NUEVO: Hace que la caída se sienta pesada y rápida (estilo Mario/Celeste/Hollow Knight) ---
+    private void ApplyBetterGravity()
+    {
+        // Si estamos cayendo (velocidad Y negativa), aplicamos gravedad extra
+        if (rb.linearVelocity.y < 0)
+        {
+            rb.linearVelocity += Vector3.up * Physics.gravity.y * (fallMultiplier - 1) * Time.fixedDeltaTime;
+        }
+        // Salto pequeño: Si el jugador suelta el botón de salto antes de llegar al pico, 
+        // incrementamos gravedad (lógica del lado del servidor es difícil de predecir sin input de "soltar", 
+        // así que por ahora solo usamos caída rápida).
     }
     public void HitCheck()
     {

@@ -66,23 +66,21 @@ public class GameManager : NetworkBehaviour
             clientLoadedLobbyUI.Clear();
     }
 
+    // En GameManager.cs
+
     public override void OnNetworkSpawn()
     {
         if (!IsServer)
         {
-            // En el cliente nos suscribimos al cambio del índice de mapa para actualizar la UI
-            currentMapIndex.OnValueChanged += (prev, cur) =>
-            {
-                OnMapIndexChanged?.Invoke(cur);
-            };
+            currentMapIndex.OnValueChanged += (prev, cur) => { OnMapIndexChanged?.Invoke(cur); };
             return;
         }
+
         NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnect;
-        // El host también se suscribe a los cambios para notificar a los clientes
-        currentMapIndex.OnValueChanged += (prev, cur) =>
-        {
-            OnMapIndexChanged?.Invoke(cur);
-        };
+        currentMapIndex.OnValueChanged += (prev, cur) => { OnMapIndexChanged?.Invoke(cur); };
+
+        // AGREGAR ESTO: Suscribirse permanentemente para detectar CUALQUIER cambio de escena
+        NetworkManager.Singleton.SceneManager.OnLoadEventCompleted += OnClientSceneLoaded;
     }
 
     private void OnClientDisconnect(ulong clientId)
@@ -445,7 +443,6 @@ public class GameManager : NetworkBehaviour
             }
         }
         NetworkManager.Singleton.SceneManager.LoadScene(sceneToLoad, LoadSceneMode.Single);
-        NetworkManager.Singleton.SceneManager.OnLoadEventCompleted += OnClientSceneLoaded;
     }
 
     private bool AllPlayersReady()
@@ -495,7 +492,6 @@ public class GameManager : NetworkBehaviour
         if (allClientsLoaded)
         {
             Debug.Log("Servidor: Todos los clientes han cargado la escena 'Game'. Spawneando jugadores...");
-            NetworkManager.Singleton.SceneManager.OnLoadEventCompleted -= OnClientSceneLoaded;
 
             foreach (var player in PlayersInLobby)
             {

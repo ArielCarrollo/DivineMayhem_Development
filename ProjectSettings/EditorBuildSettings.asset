@@ -18,7 +18,7 @@ EditorBuildSettings:
     path: Assets/Scenes/Game.unity
     guid: 919a75542a02648418309466111fe414
   - enabled: 1
-    path: Assets/Scenes/Gameplay/CrownCatching.unity
+    path: Assets/Scenes/Gameplay/Crown Catching.unity
     guid: 194774b13ecaf1a48be4c55c9ca20eab
   - enabled: 1
     path: Assets/Scenes/Gameplay/Crazy Ball.unity
