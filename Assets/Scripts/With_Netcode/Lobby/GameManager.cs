@@ -492,17 +492,40 @@ public class GameManager : NetworkBehaviour
         if (allClientsLoaded)
         {
             Debug.Log("Servidor: Todos los clientes han cargado la escena 'Game'. Spawneando jugadores...");
-
-            foreach (var player in PlayersInLobby)
+            for (int i = 0; i < PlayersInLobby.Count; i++)
             {
-                SpawnPlayerForClient(player);
+                // Pasamos el índice 'i' a la función de spawn
+                SpawnPlayerForClient(PlayersInLobby[i], i);
             }
         }
     }
 
-    private void SpawnPlayerForClient(PlayerData playerData)
+    private void SpawnPlayerForClient(PlayerData playerData, int spawnIndex)
     {
-        Transform playerInstance = Instantiate(playerPrefab);
+        // 1. Buscamos el MapSettings de la escena actual
+        MapSettings mapSettings = FindObjectOfType<MapSettings>();
+
+        Vector3 spawnPos = Vector3.zero;
+        Quaternion spawnRot = Quaternion.identity;
+
+        // 2. Si existe el settings, pedimos la posición
+        if (mapSettings != null)
+        {
+            Transform targetPoint = mapSettings.GetSpawnPoint(spawnIndex);
+            spawnPos = targetPoint.position;
+            spawnRot = targetPoint.rotation;
+        }
+        else
+        {
+            Debug.LogWarning("No se encontró MapSettings en esta escena. Usando (0,0,0).");
+            // Fallback: Intentar elevarlo un poco para que no caiga al vacío
+            spawnPos = new Vector3(0, 2, 0);
+        }
+
+        // 3. Instanciamos YA en la posición correcta (más limpio que moverlo después)
+        Transform playerInstance = Instantiate(playerPrefab, spawnPos, spawnRot);
+
+        // 4. Lógica de Netcode normal
         playerInstance.GetComponent<NetworkObject>().SpawnAsPlayerObject(playerData.ClientId, true);
 
         PlayerAppearance appearance = playerInstance.GetComponent<PlayerAppearance>();
