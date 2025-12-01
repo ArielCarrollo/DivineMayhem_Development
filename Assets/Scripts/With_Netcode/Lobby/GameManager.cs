@@ -1,487 +1,85 @@
-﻿using UnityEngine;
-using Unity.Netcode;
-using System.Collections.Generic;
-using UnityEngine.SceneManagement;
-using Unity.Collections;
+﻿using System.Collections.Generic;
 using Unity.Cinemachine;
-using System.Threading.Tasks;
-using System.Linq;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+using Unity.Cinemachine;
 
-public class GameManager : NetworkBehaviour
+// Estructura simplificada para datos locales (ya no necesita tipos de Netcode)
+[System.Serializable]
+public class LocalPlayerData
+{
+    public int PlayerIndex;
+    public string Username;
+    public int Level;
+    public int CurrentXP;
+    public bool IsReady;
+
+    // Datos de personalización
+    public int BodyIndex;
+    public int EyesIndex;
+    public int GlovesIndex;
+}
+
+public class GameManager : MonoBehaviour
 {
     public static GameManager Instance { get; private set; }
-    public bool IsOfflineMode { get; private set; } = false;
-
-    /// <summary>
-    /// Cambia el modo offline del GameManager. Se provee un método público
-    /// porque la propiedad IsOfflineMode tiene el setter privado para evitar
-    /// modificaciones accidentales desde fuera. Usar este método para
-    /// habilitar o deshabilitar el modo offline.
-    /// </summary>
-    /// <param name="value">Nuevo valor del modo offline</param>
-    public void SetOfflineMode(bool value)
-    {
-        IsOfflineMode = value;
-    }
-    [Header("Prefabs & Scenes")]
-    [SerializeField] private Transform playerPrefab;
-    private const string GameSceneName = "Game";
 
     [Header("Game Settings")]
-    private const int MaxPlayers = 5;
+    public string GameSceneName = "Game";
 
-    public NetworkList<PlayerData> PlayersInLobby = new NetworkList<PlayerData>();
-
+    // Lista persistente de jugadores para pasar del Lobby al Juego
+    public List<LocalPlayerData> LocalPlayers { get; private set; } = new List<LocalPlayerData>();
     private CinemachineImpulseSource impulseSource;
-
-    [Header("Leveling System")]
-    [SerializeField] private int baseXpToLevelUp = 100;
-    [SerializeField] private float xpMultiplierPerLevel = 1.2f;
-
-    private Dictionary<ulong, bool> clientLoadedLobbyUI = new Dictionary<ulong, bool>();
-
-    void Awake()
+    private void Awake()
     {
         if (Instance == null)
         {
             Instance = this;
             DontDestroyOnLoad(gameObject);
-
-            // DETECTAR XBOX / UWP
-#if UNITY_WSA_10_0
-            IsOfflineMode = true;
-            Debug.Log("GameManager: Detectado modo UNITY_WSA_10_0. Activando modo Offline.");
-#endif
         }
         else
         {
             Destroy(gameObject);
         }
-        impulseSource = GetComponent<CinemachineImpulseSource>();
-    }
-    private void OnDestroy()
-    {
-        // Muy importante: soltar la referencia estática
-        if (Instance == this)
-        {
-            Instance = null;
-        }
-
-        // Por si quedó algo en memoria
-        if (PlayersInLobby != null)
-            PlayersInLobby.Clear();
-
-        if (clientLoadedLobbyUI != null)
-            clientLoadedLobbyUI.Clear();
     }
 
-    public override void OnNetworkSpawn()
+    // Método para recibir la lista final desde el LocalLobbyManager antes de iniciar
+    public void SetPlayers(List<LocalPlayerData> players)
     {
-        if (!IsServer) return;
-        NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnect;
+        LocalPlayers = new List<LocalPlayerData>(players);
     }
 
-    private void OnClientDisconnect(ulong clientId)
+    public void StartLocalGame()
     {
-        if (!IsServer) return;
+        SceneManager.LoadScene(GameSceneName);
+    }
 
-        if (clientLoadedLobbyUI.ContainsKey(clientId))
+    // Sistema simple de XP (opcional)
+    public void AddXp(int playerIndex, int amount)
+    {
+        var player = LocalPlayers.Find(p => p.PlayerIndex == playerIndex);
+        if (player != null)
         {
-            clientLoadedLobbyUI.Remove(clientId);
-        }
-
-        for (int i = 0; i < PlayersInLobby.Count; i++)
-        {
-            if (PlayersInLobby[i].ClientId == clientId)
+            player.CurrentXP += amount;
+            // Lógica simple de nivel
+            if (player.CurrentXP >= 100)
             {
-                Debug.Log($"Servidor: Eliminando jugador {PlayersInLobby[i].Username.ToString()} (ID: {clientId}) de la lista.");
-                PlayersInLobby.RemoveAt(i);
-                break;
+                player.CurrentXP = 0;
+                player.Level++;
             }
         }
     }
-
-    // --- Lógica de Autenticación y Carga de Lobby ---
-
-    [Rpc(SendTo.Server)]
-    public void OnPlayerAuthenticatedServerRpc(PlayerData playerData, RpcParams rpcParams = default)
-    {
-        ulong clientId = rpcParams.Receive.SenderClientId;
-
-        // 👇 SANITIZAR AQUÍ TAMBIÉN
-        string name = playerData.Username.ToString();
-        if (!string.IsNullOrEmpty(name))
-            name = name.Replace("\0", string.Empty);
-        if (string.IsNullOrWhiteSpace(name))
-            name = $"Player_{clientId}";
-        playerData.Username = new Unity.Collections.FixedString64Bytes(name);
-
-        bool isAlreadyConnected = false;
-        for (int i = 0; i < PlayersInLobby.Count; i++)
-        {
-            if (PlayersInLobby[i].ClientId == clientId)
-            {
-                isAlreadyConnected = true;
-                break;
-            }
-        }
-
-        if (isAlreadyConnected)
-        {
-            Debug.LogWarning($"El cliente {clientId} ya está en la lista. Sincronizando UI.");
-        }
-        else
-        {
-            if (PlayersInLobby.Count >= 5)
-            {
-                Debug.LogWarning($"El cliente {clientId} intentó unirse pero el lobby está lleno.");
-                return;
-            }
-
-            playerData.ClientId = clientId;
-            playerData.IsReady = false;
-            PlayersInLobby.Add(playerData);
-            clientLoadedLobbyUI[clientId] = false;
-            Debug.Log($"Servidor: Jugador {playerData.Username.ToString()} (ID: {clientId}) añadido a la lista.");
-        }
-
-        ClientRpcParams clientRpcParams = new ClientRpcParams
-        {
-            Send = new ClientRpcSendParams
-            {
-                TargetClientIds = new ulong[] { clientId }
-            }
-        };
-        LoginSuccessClientRpc(clientRpcParams);
-    }
-
-
-    [ClientRpc]
-    public void LoginSuccessClientRpc(ClientRpcParams clientRpcParams = default)
-    {
-        Debug.Log("Cliente: Recibida señal LoginSuccessClientRpc. Cargando UI de Lobby...");
-        if (UiGameManager.Instance != null)
-        {
-            UiGameManager.Instance.GoToLobby();
-        }
-        else
-        {
-            Debug.LogError("Error: UiGameManager.Instance es nulo en el cliente.");
-        }
-
-        ConfirmLobbyUILoadedServerRpc();
-    }
-
-    [Rpc(SendTo.Server)]
-    private void ConfirmLobbyUILoadedServerRpc(RpcParams rpcParams = default)
-    {
-        ulong clientId = rpcParams.Receive.SenderClientId;
-        if (clientLoadedLobbyUI.ContainsKey(clientId))
-        {
-            clientLoadedLobbyUI[clientId] = true;
-            Debug.Log($"Servidor: Cliente {clientId} ha confirmado la carga de la UI del Lobby.");
-        }
-
-        ForceSyncPlayerToClient(clientId);
-    }
-
-    private void ForceSyncPlayerToClient(ulong targetClientId)
-    {
-        PlayerData playerData = new PlayerData();
-        bool found = false;
-        foreach (var p in PlayersInLobby)
-        {
-            if (p.ClientId == targetClientId)
-            {
-                playerData = p;
-                found = true;
-                break;
-            }
-        }
-
-        if (found)
-        {
-            
-        }
-    }
-
-
-    // --- Lógica de la Sala de Espera (Ready, Customization) ---
-
-    [Rpc(SendTo.Server)]
-    public void ToggleReadyServerRpc(RpcParams rpcParams = default)
-    {
-        ulong clientId = rpcParams.Receive.SenderClientId;
-        for (int i = 0; i < PlayersInLobby.Count; i++)
-        {
-            if (PlayersInLobby[i].ClientId == clientId)
-            {
-                PlayerData updatedPlayer = PlayersInLobby[i];
-                updatedPlayer.IsReady = !updatedPlayer.IsReady;
-                PlayersInLobby[i] = updatedPlayer;
-                break;
-            }
-        }
-    }
-
-    [Rpc(SendTo.Server)]
-    public void UpdatePlayerAppearanceServerRpc(PlayerData customData, RpcParams rpcParams = default)
-    {
-        ulong clientId = rpcParams.Receive.SenderClientId;
-        for (int i = 0; i < PlayersInLobby.Count; i++)
-        {
-            if (PlayersInLobby[i].ClientId == clientId)
-            {
-                PlayerData updatedPlayer = PlayersInLobby[i];
-                updatedPlayer.BodyIndex = customData.BodyIndex;
-                updatedPlayer.EyesIndex = customData.EyesIndex;
-                updatedPlayer.GlovesIndex = customData.GlovesIndex;
-                PlayersInLobby[i] = updatedPlayer;
-                break;
-            }
-        }
-    }
-
-    [Rpc(SendTo.Server)]
-    public void UpdatePlayerNameServerRpc(string newName, RpcParams rpcParams = default)
-    {
-        ulong clientId = rpcParams.Receive.SenderClientId;
-
-        for (int i = 0; i < PlayersInLobby.Count; i++)
-        {
-            if (PlayersInLobby[i].ClientId == clientId)
-            {
-                PlayerData updatedPlayer = PlayersInLobby[i];
-                updatedPlayer.Username = new FixedString64Bytes(newName);
-                PlayersInLobby[i] = updatedPlayer;
-                break;
-            }
-        }
-    }
-
-    // --- Expulsar jugador (solo host) ---
-    [Rpc(SendTo.Server)]
-    public void KickPlayerServerRpc(ulong targetClientId, RpcParams rpcParams = default)
-    {
-        if (rpcParams.Receive.SenderClientId != NetworkManager.ServerClientId)
-            return;
-
-        if (targetClientId == NetworkManager.ServerClientId)
-            return;
-
-        for (int i = 0; i < PlayersInLobby.Count; i++)
-        {
-            if (PlayersInLobby[i].ClientId == targetClientId)
-            {
-                Debug.Log($"Servidor: expulsando al jugador {PlayersInLobby[i].Username.ToString()} ({targetClientId})");
-                PlayersInLobby.RemoveAt(i);
-                break;
-            }
-        }
-
-        if (NetworkManager.Singleton.ConnectedClients.ContainsKey(targetClientId))
-        {
-            NetworkManager.Singleton.DisconnectClient(targetClientId);
-        }
-    }
-
-    [Rpc(SendTo.Server)]
-    public void CloseLobbyServerRpc(RpcParams rpcParams = default)
-    {
-        if (rpcParams.Receive.SenderClientId != NetworkManager.ServerClientId)
-            return;
-
-        var connectedIds = new List<ulong>(NetworkManager.Singleton.ConnectedClientsIds);
-        foreach (var id in connectedIds)
-        {
-            if (id == NetworkManager.ServerClientId)
-                continue;
-
-            if (NetworkManager.Singleton.ConnectedClients.ContainsKey(id))
-            {
-                NetworkManager.Singleton.DisconnectClient(id);
-            }
-        }
-
-        PlayersInLobby.Clear();
-
-        CloseLobbyOnClientRpc();
-
-        NetworkManager.Singleton.Shutdown();
-        Destroy(gameObject);
-    }
-
-    [ClientRpc]
-    private void CloseLobbyOnClientRpc(ClientRpcParams clientRpcParams = default)
-    {
-        var relay = FindObjectOfType<RelayLobbyConnector>();
-        if (relay != null)
-        {
-            // vuelve al panel de selección
-            relay.ClearCurrentLobby();
-            relay.ShowJoiningPanel();
-        }
-
-        if (UiGameManager.Instance != null)
-        {
-            //UiGameManager.Instance.ShowLobbySelection();
-        }
-    }
-
-    // --- Lógica de Inicio de Juego ---
-
-    [Rpc(SendTo.Server)]
-    public void StartGameServerRpc(RpcParams rpcParams = default)
-    {
-        if (rpcParams.Receive.SenderClientId != NetworkManager.ServerClientId) return;
-        if (!AllPlayersReady()) return;
-
-        NetworkManager.Singleton.SceneManager.LoadScene(GameSceneName, LoadSceneMode.Single);
-        NetworkManager.Singleton.SceneManager.OnLoadEventCompleted += OnClientSceneLoaded;
-    }
-
-    private bool AllPlayersReady()
-    {
-        if (PlayersInLobby.Count == 0) return false;
-        foreach (var player in PlayersInLobby)
-        {
-            if (!player.IsReady) return false;
-        }
-        return true;
-    }
-
-    private void OnClientSceneLoaded(string sceneName, LoadSceneMode loadSceneMode, List<ulong> clientsCompleted, List<ulong> clientsTimedOut)
-    {
-        if (sceneName != GameSceneName) return;
-
-        var allConnectedClientIds = NetworkManager.Singleton.ConnectedClientsIds.ToList();
-
-        if (NetworkManager.Singleton.IsHost)
-        {
-            allConnectedClientIds.Remove(NetworkManager.Singleton.LocalClientId);
-        }
-
-        bool allClientsLoaded = true;
-        foreach (var clientId in allConnectedClientIds)
-        {
-            if (!clientsCompleted.Contains(clientId))
-            {
-                allClientsLoaded = false;
-                break;
-            }
-        }
-
-        if (NetworkManager.Singleton.IsHost && !clientsCompleted.Contains(NetworkManager.Singleton.LocalClientId))
-        {
-            allClientsLoaded = false;
-        }
-
-
-        if (allClientsLoaded)
-        {
-            Debug.Log("Servidor: Todos los clientes han cargado la escena 'Game'. Spawneando jugadores...");
-            NetworkManager.Singleton.SceneManager.OnLoadEventCompleted -= OnClientSceneLoaded;
-
-            foreach (var player in PlayersInLobby)
-            {
-                SpawnPlayerForClient(player);
-            }
-        }
-    }
-
-    private void SpawnPlayerForClient(PlayerData playerData)
-    {
-        Transform playerInstance = Instantiate(playerPrefab);
-        playerInstance.GetComponent<NetworkObject>().SpawnAsPlayerObject(playerData.ClientId, true);
-
-        PlayerAppearance appearance = playerInstance.GetComponent<PlayerAppearance>();
-        if (appearance != null)
-        {
-            appearance.PlayerCustomData.Value = playerData;
-        }
-
-        PlayerNicknameUI nicknameUI = playerInstance.GetComponentInChildren<PlayerNicknameUI>();
-        if (nicknameUI != null)
-        {
-            nicknameUI.Nickname.Value = playerData.Username;
-            nicknameUI.Level.Value = playerData.Level;
-        }
-    }
-
-
-    // --- RPCs y Misceláneos ---
-
-    [ClientRpc]
-    private void NotifyClientOfFailureClientRpc(string message, ClientRpcParams clientRpcParams = default)
-    {
-        if (UiGameManager.Instance != null)
-        {
-            UiGameManager.Instance.ShowError(message);
-        }
-    }
-
     public void TriggerCameraShake()
     {
         if (impulseSource != null)
         {
             impulseSource.GenerateImpulse();
         }
-    }
-
-    // --- Sistema de Experiencia ---
-
-    public int GetXpForLevel(int level)
-    {
-        return Mathf.FloorToInt(baseXpToLevelUp * Mathf.Pow(xpMultiplierPerLevel, level));
-    }
-
-    [Rpc(SendTo.Server)]
-    public void AddXpToPlayerServerRpc(int amount, RpcParams rpcParams = default)
-    {
-        ulong clientId = rpcParams.Receive.SenderClientId;
-        for (int i = 0; i < PlayersInLobby.Count; i++)
+        else
         {
-            if (PlayersInLobby[i].ClientId == clientId)
-            {
-                PlayerData updatedPlayer = PlayersInLobby[i];
-                updatedPlayer.CurrentXP += amount;
-
-                int xpNeeded = GetXpForLevel(updatedPlayer.Level);
-                while (updatedPlayer.CurrentXP >= xpNeeded)
-                {
-                    updatedPlayer.CurrentXP -= xpNeeded;
-                    updatedPlayer.Level++;
-                    xpNeeded = GetXpForLevel(updatedPlayer.Level);
-                }
-
-                PlayersInLobby[i] = updatedPlayer;
-                SavePlayerProgress(updatedPlayer, clientId);
-
-                break;
-            }
-        }
-    }
-
-    private void SavePlayerProgress(PlayerData data, ulong clientId)
-    {
-        ClientRpcParams clientRpcParams = new ClientRpcParams
-        {
-            Send = new ClientRpcSendParams
-            {
-                TargetClientIds = new ulong[] { clientId }
-            }
-        };
-        RequestClientSaveProgressClientRpc(data, clientRpcParams);
-    }
-
-    [ClientRpc]
-    private void RequestClientSaveProgressClientRpc(PlayerData data, ClientRpcParams clientRpcParams)
-    {
-        Debug.Log($"Cliente: Recibida solicitud para guardar progreso. Nivel: {data.Level}, XP: {data.CurrentXP}");
-        if (CloudAuthManager.Instance != null)
-        {
-            CloudAuthManager.Instance.UpdateLocalData(data);
-            _ = CloudAuthManager.Instance.SavePlayerProgress();
+            // Intenta buscarlo de nuevo por si se perdió la referencia o no estaba en Awake
+            impulseSource = GetComponent<CinemachineImpulseSource>();
+            if (impulseSource != null) impulseSource.GenerateImpulse();
         }
     }
 }

@@ -1,165 +1,171 @@
-﻿using System.Collections.Generic;
-using UnityEngine;
-using UnityEngine.EventSystems;
+﻿using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.InputSystem;
+using TMPro;
+using UnityEngine.EventSystems;
+using System.Collections.Generic;
 
 [RequireComponent(typeof(RectTransform))]
+[RequireComponent(typeof(Image))]
 public class GamepadVirtualCursor : MonoBehaviour
 {
-    [Header("Referencias")]
-    public Canvas canvas;                     // Canvas donde está el cursor
-    public GraphicRaycaster raycaster;        // Raycaster del Canvas (UI)
+    [Header("Referencias UI")]
+    [SerializeField] private Canvas parentCanvas;
+    [SerializeField] private GraphicRaycaster raycaster;
+    [SerializeField] private TextMeshProUGUI playerLabel;
 
-    [Header("Movimiento")]
-    public bool useRightStick = false;        // Usa el stick derecho si es true, izquierdo si es false
-    public float cursorSpeed = 1000f;         // Velocidad del puntero
+    [Header("Configuración")]
+    [SerializeField] private float cursorSpeed = 1000f;
 
-    private RectTransform cursorRect;         // RectTransform del puntero
-    private RectTransform parentRect;         // RectTransform padre (límites)
+    private RectTransform cursorRect;
+    private PlayerInput playerInput;
+    private Gamepad assignedGamepad;
+    private Mouse assignedMouse;
+    private Image cursorImage;
+
     private EventSystem eventSystem;
-
-    // Para hover y clicks
     private PointerEventData pointerData;
     private GameObject currentHover;
-    private GameObject pressedObject;
-    private Vector2 lastScreenPos;
-
-    // Referencia al PlayerInput asociado a este cursor (multijugador local)
-    private PlayerInput playerInput;
-
-    // Imagen del cursor para aplicar color
-    private Image cursorImage;
+    private GameObject currentPressed;
 
     private void Awake()
     {
         cursorRect = GetComponent<RectTransform>();
-
-        if (canvas == null)
-            canvas = GetComponentInParent<Canvas>();
-
-        if (raycaster == null && canvas != null)
-            raycaster = canvas.GetComponent<GraphicRaycaster>();
-
-        if (canvas != null)
-            parentRect = canvas.GetComponent<RectTransform>();
-
+        cursorImage = GetComponent<Image>();
         eventSystem = EventSystem.current;
 
-        if (eventSystem == null)
-        {
-            Debug.LogWarning("No hay EventSystem en la escena. Los eventos de UI no funcionarán.");
-        }
+        // Auto-detectar canvas raíz si no está asignado
+        if (parentCanvas == null) parentCanvas = GetComponentInParent<Canvas>();
+
+        // Auto-detectar Raycaster
+        if (parentCanvas != null && raycaster == null)
+            raycaster = parentCanvas.GetComponent<GraphicRaycaster>();
 
         pointerData = new PointerEventData(eventSystem);
-
-        // Opcional: ocultar cursor del sistema en PC
         Cursor.visible = false;
+    }
 
-        // Obtener la imagen para aplicar color
-        cursorImage = GetComponent<Image>();
+    public void Initialize(PlayerInput pi, Color playerColor, int playerIndex)
+    {
+        playerInput = pi;
+        cursorImage.color = playerColor;
+        if (playerLabel != null)
+        {
+            playerLabel.text = $"P{playerIndex + 1}";
+            playerLabel.color = playerColor;
+        }
+
+        foreach (var device in playerInput.devices)
+        {
+            if (device is Gamepad g) assignedGamepad = g;
+            else if (device is Mouse m) assignedMouse = m;
+        }
     }
 
     private void Update()
     {
-        // Determinar el mando a usar: si hay un PlayerInput asociado, usar su Gamepad; de lo contrario, usar Gamepad.current
-        Gamepad gamepad = null;
-        if (playerInput != null)
+        // --- 1. MOVIMIENTO ---
+        if (assignedGamepad != null)
         {
-            // playerInput.devices es un ReadOnlyArray<InputDevice>. Buscamos el primer Gamepad disponible
-            var devices = playerInput.devices;
-            if (devices.Count > 0)
+            Vector2 input = assignedGamepad.leftStick.ReadValue();
+            if (input.sqrMagnitude > 0.01f) MoveCursorDelta(input);
+
+            if (assignedGamepad.buttonSouth.wasPressedThisFrame) SimulateClickDown();
+            if (assignedGamepad.buttonSouth.wasReleasedThisFrame) SimulateClickUp();
+        }
+        else if (assignedMouse != null)
+        {
+            Vector2 mousePos = assignedMouse.position.ReadValue();
+            Vector2 delta = assignedMouse.delta.ReadValue();
+
+            // Si el mouse se mueve, actualizamos. 
+            // IMPORTANTE: En Overlay, mousePos ya es posición de pantalla correcta.
+            if (delta.sqrMagnitude > 0.1f)
             {
-                foreach (var dev in devices)
-                {
-                    if (dev is Gamepad g)
-                    {
-                        gamepad = g;
-                        break;
-                    }
-                }
+                // Convertimos de pantalla a local para mover el RectTransform correctamente
+                // Esto evita desajustes si el canvas escala
+                RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                    parentCanvas.transform as RectTransform,
+                    mousePos,
+                    parentCanvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : parentCanvas.worldCamera,
+                    out Vector2 localPoint
+                );
+                cursorRect.anchoredPosition = localPoint;
             }
-        }
-        if (gamepad == null)
-        {
-            gamepad = Gamepad.current;
-        }
-        if (gamepad == null)
-        {
-            return; // No hay gamepad conectado
+
+            if (assignedMouse.leftButton.wasPressedThisFrame) SimulateClickDown();
+            if (assignedMouse.leftButton.wasReleasedThisFrame) SimulateClickUp();
         }
 
-        // --- Movimiento con stick ---
-        Vector2 input = useRightStick ? gamepad.rightStick.ReadValue()
-                                      : gamepad.leftStick.ReadValue();
-
-        if (input.sqrMagnitude > 0.0001f)
-        {
-            MoveCursor(input);
-        }
-
-        // Actualizar hover cada frame (aunque no se mueva, por si cambió algo en UI)
+        // --- 2. RAYCAST ---
         UpdateHover();
+    }
 
-        // --- Click con botón South ---
-        if (gamepad.buttonSouth.wasPressedThisFrame)
+    // --- CORRECCIÓN 1: MANTENER SIEMPRE ENCIMA ---
+    private void LateUpdate()
+    {
+        // Al hacerlo en LateUpdate, nos aseguramos de que si algún script activó un panel
+        // en Update(), nosotros nos ponemos encima justo antes de renderizar.
+        if (transform.GetSiblingIndex() != transform.parent.childCount - 1)
         {
-            PressUnderCursor();
-        }
-
-        if (gamepad.buttonSouth.wasReleasedThisFrame)
-        {
-            ReleaseUnderCursor();
+            transform.SetAsLastSibling();
         }
     }
 
-    /// <summary>
-    /// Inicializa el cursor para un jugador específico y aplica el color.
-    /// </summary>
-    /// <param name="pi">PlayerInput que controlará este cursor</param>
-    /// <param name="color">Color del cursor</param>
-    public void Initialize(PlayerInput pi, Color color)
+    private void MoveCursorDelta(Vector2 input)
     {
-        playerInput = pi;
-        if (cursorImage == null)
-        {
-            cursorImage = GetComponent<Image>();
-        }
-        if (cursorImage != null)
-        {
-            cursorImage.color = color;
-        }
-    }
-
-    private void MoveCursor(Vector2 input)
-    {
-        if (parentRect == null)
-            return;
-
+        if (parentCanvas == null) return;
         Vector2 anchoredPos = cursorRect.anchoredPosition;
         anchoredPos += input * cursorSpeed * Time.unscaledDeltaTime;
 
-        Rect rect = parentRect.rect;
+        Rect rect = parentCanvas.GetComponent<RectTransform>().rect;
         anchoredPos.x = Mathf.Clamp(anchoredPos.x, rect.xMin, rect.xMax);
         anchoredPos.y = Mathf.Clamp(anchoredPos.y, rect.yMin, rect.yMax);
-
         cursorRect.anchoredPosition = anchoredPos;
+    }
+
+    private void SimulateClickDown()
+    {
+        if (currentHover == null) return;
+        currentPressed = currentHover;
+
+        pointerData.button = PointerEventData.InputButton.Left;
+        pointerData.pointerPress = currentPressed;
+        pointerData.pressPosition = pointerData.position;
+        pointerData.pointerPressRaycast = new RaycastResult { gameObject = currentPressed };
+
+        ExecuteEvents.Execute(currentPressed, pointerData, ExecuteEvents.pointerDownHandler);
+    }
+
+    private void SimulateClickUp()
+    {
+        if (currentPressed == null) return;
+
+        pointerData.button = PointerEventData.InputButton.Left;
+        ExecuteEvents.Execute(currentPressed, pointerData, ExecuteEvents.pointerUpHandler);
+
+        if (currentHover == currentPressed)
+        {
+            ExecuteEvents.Execute(currentPressed, pointerData, ExecuteEvents.pointerClickHandler);
+        }
+
+        pointerData.pointerPress = null;
+        currentPressed = null;
     }
 
     private void UpdateHover()
     {
-        if (raycaster == null || eventSystem == null || canvas == null)
-            return;
+        if (raycaster == null) return;
 
-        // Posición del puntero en pantalla
-        Camera cam = canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : canvas.worldCamera;
-        Vector2 screenPos = RectTransformUtility.WorldToScreenPoint(cam, cursorRect.position);
+        // --- CORRECCIÓN 2: COORDENADAS PRECISAS DE PANTALLA ---
+        // Convertimos la posición del mundo (WorldSpace) del RectTransform a 
+        // coordenadas de pantalla (ScreenSpace) para el Raycaster.
+        // Esto soluciona problemas cuando cambias de paneles o resoluciones.
+        Camera cam = parentCanvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : parentCanvas.worldCamera;
+        Vector2 screenPoint = RectTransformUtility.WorldToScreenPoint(cam, cursorRect.position);
 
-        // Actualizar PointerEventData
-        pointerData.Reset();
-        pointerData.position = screenPos;
-        pointerData.delta = screenPos - lastScreenPos;
-        lastScreenPos = screenPos;
+        pointerData.position = screenPoint;
+        pointerData.delta = Vector2.zero; // Importante resetear delta para evitar cálculos erróneos internos
 
         List<RaycastResult> results = new List<RaycastResult>();
         raycaster.Raycast(pointerData, results);
@@ -168,57 +174,9 @@ public class GamepadVirtualCursor : MonoBehaviour
 
         if (newHover != currentHover)
         {
-            // Notificar salida del anterior
-            if (currentHover != null)
-            {
-                ExecuteEvents.Execute(currentHover, pointerData, ExecuteEvents.pointerExitHandler);
-            }
-
+            if (currentHover != null) ExecuteEvents.Execute(currentHover, pointerData, ExecuteEvents.pointerExitHandler);
             currentHover = newHover;
-
-            // Notificar entrada al nuevo
-            if (currentHover != null)
-            {
-                ExecuteEvents.Execute(currentHover, pointerData, ExecuteEvents.pointerEnterHandler);
-                eventSystem.SetSelectedGameObject(currentHover);
-            }
+            if (currentHover != null) ExecuteEvents.Execute(currentHover, pointerData, ExecuteEvents.pointerEnterHandler);
         }
-
-        // Notificar movimiento de puntero al elemento actual
-        if (currentHover != null)
-        {
-            ExecuteEvents.Execute(currentHover, pointerData, ExecuteEvents.pointerMoveHandler);
-        }
-    }
-
-    private void PressUnderCursor()
-    {
-        if (currentHover == null || eventSystem == null)
-            return;
-
-        pressedObject = currentHover;
-
-        // Guardar posición de presionado (por si lo necesitas)
-        pointerData.pressPosition = pointerData.position;
-        pointerData.pointerPressRaycast = new RaycastResult { gameObject = pressedObject };
-
-        ExecuteEvents.Execute(pressedObject, pointerData, ExecuteEvents.pointerDownHandler);
-        eventSystem.SetSelectedGameObject(pressedObject);
-    }
-
-    private void ReleaseUnderCursor()
-    {
-        if (pressedObject == null || eventSystem == null)
-            return;
-
-        ExecuteEvents.Execute(pressedObject, pointerData, ExecuteEvents.pointerUpHandler);
-
-        // Si soltamos sobre el mismo objeto donde presionamos → Click
-        if (pressedObject == currentHover)
-        {
-            ExecuteEvents.Execute(pressedObject, pointerData, ExecuteEvents.pointerClickHandler);
-        }
-
-        pressedObject = null;
     }
 }

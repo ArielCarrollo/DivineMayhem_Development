@@ -1,46 +1,92 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using System.Collections.Generic;
 
-/// <summary>
-/// Este componente debe colocarse en la escena de juego para posiciones iniciales
-/// de los jugadores en modo offline. Cuando el modo offline está activado en
-/// GameManager, buscará todos los PlayerInput persistentes (creados en el
-/// lobby) y los posicionará en los puntos de aparición definidos.
-/// También puedes asignar aquí scripts de movimiento o cámara personalizados
-/// que se necesiten sólo en modo local.
-/// </summary>
 public class OfflinePlayerSpawner : MonoBehaviour
 {
-    [Tooltip("Puntos de aparición para los jugadores locales. La longitud de este array debe ser al menos igual al número máximo de jugadores.")]
-    public Transform[] spawnPoints;
+    [Header("Configuración")]
+    [Tooltip("El prefab del personaje JUGABLE (debe tener PlayerInput y un script para recibir la skin).")]
+    [SerializeField] private GameObject playerGamePrefab;
+
+    [Tooltip("Puntos de aparición. El índice 0 es para el Jugador 1, etc.")]
+    [SerializeField] private Transform[] spawnPoints;
 
     private void Start()
     {
-        // Sólo necesitamos spawnear en modo offline
-        if (GameManager.Instance == null || !GameManager.Instance.IsOfflineMode)
-            return;
-
-        // Encontrar todos los PlayerInput persistentes
-        var playerInputs = FindObjectsOfType<PlayerInput>();
-        // Ordenar por su index de unión (opcional) para asignar el mismo orden que en el lobby
-        // Aquí asumimos que el orden en la lista es el mismo que el de joinedPlayers
-
-        for (int i = 0; i < playerInputs.Length; i++)
+        // 1. Validar que tenemos datos del GameManager
+        if (GameManager.Instance == null)
         {
-            var pi = playerInputs[i];
-            // Asegurarse de que hay suficientes spawn points
-            if (spawnPoints != null && i < spawnPoints.Length)
-            {
-                pi.transform.position = spawnPoints[i].position;
-            }
-            else
-            {
-                // Si no hay suficientes, los dejamos en el origen
-                Debug.LogWarning("OfflinePlayerSpawner: no hay suficientes puntos de spawn asignados. Usa el origen para los sobrantes.");
-                pi.transform.position = Vector3.zero;
-            }
-            // Aquí podrías habilitar un script de movimiento para cada jugador si aún no lo tiene
-            // o configurar su cámara personalizada.
+            Debug.LogError("OfflinePlayerSpawner: No se encontró GameManager.");
+            return;
         }
+
+        List<LocalPlayerData> playersToSpawn = GameManager.Instance.LocalPlayers;
+
+        if (playersToSpawn == null || playersToSpawn.Count == 0)
+        {
+            Debug.LogWarning("OfflinePlayerSpawner: No hay jugadores en la lista del GameManager para spawnear.");
+            return;
+        }
+
+        // 2. Instanciar cada jugador
+        foreach (var data in playersToSpawn)
+        {
+            SpawnPlayerCharacter(data);
+        }
+    }
+
+    private void SpawnPlayerCharacter(LocalPlayerData data)
+    {
+        // A. Determinar posición
+        int index = data.PlayerIndex;
+        Vector3 startPos = (spawnPoints != null && index < spawnPoints.Length)
+            ? spawnPoints[index].position
+            : Vector3.zero;
+
+        // B. Instanciar el jugador vinculando su dispositivo (Gamepad/Teclado)
+        // Usamos PlayerInput.Instantiate para asegurar que el mando que usó en el lobby
+        // se asigne a este nuevo personaje.
+        var pInput = PlayerInput.Instantiate(
+            playerGamePrefab,
+            controlScheme: null, // Usa el esquema por defecto
+            pairWithDevice: GetDeviceForPlayer(index)
+        );
+
+        // C. Posicionar
+        pInput.transform.position = startPos;
+        pInput.name = $"Player_{index + 1}_{data.Username}";
+
+        // D. Aplicar Personalización (Skin)
+        // Asumimos que tu prefab tiene un script 'PlayerAppearance' o similar.
+        // Si tu script se llama diferente, cámbialo aquí.
+        var appearance = pInput.GetComponent<PlayerAppearance>();
+        if (appearance != null)
+        {
+            // Enviamos los índices que guardamos en el Lobby
+            appearance.ApplyOfflineAppearance(data.BodyIndex, data.EyesIndex, data.GlovesIndex);
+        }
+
+        // E. Configurar UI del jugador (Nombre, Nivel) si existe
+        var nicknameUI = pInput.GetComponentInChildren<PlayerNicknameUI>();
+        if (nicknameUI != null)
+        {
+            nicknameUI.SetLocalInfo(data.Username, data.Level);
+        }
+    }
+
+    // Intenta recuperar el dispositivo que usaba el jugador.
+    // En local simple, asumimos que el PlayerIndex coincide con el orden de los Gamepads conectados.
+    private InputDevice GetDeviceForPlayer(int playerIndex)
+    {
+        // Si el jugador estaba usando Teclado en el lobby, PlayerInputManager suele asignarlo
+        // pero aquí hacemos una asignación directa basada en gamepads disponibles.
+        var gamepads = Gamepad.all;
+        if (playerIndex < gamepads.Count)
+        {
+            return gamepads[playerIndex];
+        }
+
+        // Fallback: Si no hay suficientes gamepads, devolver el teclado actual o null
+        return Keyboard.current;
     }
 }

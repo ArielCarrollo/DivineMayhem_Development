@@ -1,69 +1,106 @@
-using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using TMPro;
 using UnityEngine.InputSystem;
 
-/// <summary>
-/// Panel de UI para que un jugador local indique si está listo.
-/// Este script debería estar en el prefab utilizado para representar a un jugador
-/// en el lobby local. Contiene un botón para alternar el estado de listo y
-/// muestra el nombre del jugador. Al pulsar el botón se notifica al
-/// LocalLobbyManager correspondiente para actualizar el estado.
-/// </summary>
 public class LocalReadyPanel : MonoBehaviour
 {
-    [Tooltip("Texto que muestra el nombre del jugador")] public TextMeshProUGUI playerNameText;
-    [Tooltip("Botón que alterna el estado listo/no listo")] public Button readyButton;
-    [Tooltip("Texto interno del botón de ready")] public TextMeshProUGUI readyButtonText;
-    [Tooltip("Imagen para colorear el botón según el estado")] public Image readyButtonImage;
+    [Header("Referencias UI (Automáticas o Manuales)")]
+    [SerializeField] private TextMeshProUGUI nameText;
+    [SerializeField] private Button readyButton;
+    [SerializeField] private TextMeshProUGUI readyButtonText; // El texto dentro del botón
+    [SerializeField] private Image panelBackground;
 
-    private PlayerInput playerInput;
-    private LocalLobbyManager lobbyManager;
-    private bool isReady;
+    [Header("Configuración Visual")]
+    [SerializeField] private Color notReadyColor = new Color(0.2f, 0.2f, 0.2f, 0.5f);
+    [SerializeField] private Color readyStateColor = new Color(0.2f, 0.8f, 0.2f, 1f);
 
-    /// <summary>
-    /// Configura el panel con la información del jugador y el lobby asociado.
-    /// </summary>
-    /// <param name="pi">PlayerInput del jugador</param>
-    /// <param name="manager">Referente al LocalLobbyManager</param>
-    /// <param name="playerName">Nombre que se mostrará</param>
-    public void Setup(PlayerInput pi, LocalLobbyManager manager, string playerName)
+    private LocalLobbyManager manager;
+    private LocalPlayerData myData;
+    private PlayerInput myInput;
+
+    public void Initialize(LocalLobbyManager lobbyManager, LocalPlayerData data, PlayerInput input, Color playerColor)
     {
-        playerInput = pi;
-        lobbyManager = manager;
-        if (playerNameText != null)
+        manager = lobbyManager;
+        myData = data;
+        myInput = input;
+
+        // 1. AUTO-BUSCAR REFERENCIAS si no están asignadas
+        // Busca un hijo llamado "name" (como pediste)
+        if (nameText == null)
+            nameText = transform.Find("name")?.GetComponent<TextMeshProUGUI>();
+
+        // Busca un hijo llamado "ReadyButton"
+        if (readyButton == null)
+            readyButton = transform.Find("ReadyButton")?.GetComponent<Button>();
+
+        // Busca el texto dentro del botón (opcional)
+        if (readyButton != null && readyButtonText == null)
+            readyButtonText = readyButton.GetComponentInChildren<TextMeshProUGUI>();
+
+        // 2. APLICAR COLOR DE JUGADOR
+        if (nameText != null)
         {
-            playerNameText.text = playerName;
+            nameText.text = data.Username;
+            nameText.color = playerColor; // <--- AQUÍ APLICAMOS EL COLOR DEL PUNTERO
         }
-        isReady = false;
-        UpdateUI();
+
+        // 3. CONFIGURAR BOTÓN DE UI (Para clic con cursor virtual)
         if (readyButton != null)
         {
             readyButton.onClick.RemoveAllListeners();
-            readyButton.onClick.AddListener(ToggleReady);
+            readyButton.onClick.AddListener(OnSubmitUI);
         }
+
+        // 4. CONFIGURAR INPUT DE MANDO (Para botón físico 'A' o 'X')
+        // Usamos el action map "UI" o "Player" según tengas configurado
+        if (myInput.actions.FindAction("Submit") != null)
+            myInput.actions["Submit"].performed += OnSubmitPressed;
+
+        UpdateUI();
+    }
+
+    private void OnDestroy()
+    {
+        if (myInput != null && myInput.actions.FindAction("Submit") != null)
+        {
+            myInput.actions["Submit"].performed -= OnSubmitPressed;
+        }
+    }
+
+    // Se llama si pulsas el botón físico del mando
+    private void OnSubmitPressed(InputAction.CallbackContext ctx)
+    {
+        ToggleReady();
+    }
+
+    // Se llama si haces clic con el puntero virtual en el botón "ReadyButton"
+    private void OnSubmitUI()
+    {
+        ToggleReady();
     }
 
     private void ToggleReady()
     {
-        isReady = !isReady;
+        myData.IsReady = !myData.IsReady;
+        manager.OnPlayerReadyChange();
         UpdateUI();
-        if (lobbyManager != null && playerInput != null)
-        {
-            lobbyManager.SetReadyState(playerInput, isReady);
-        }
     }
 
     private void UpdateUI()
     {
-        if (readyButtonText != null)
+        if (nameText != null) nameText.text = myData.Username;
+
+        if (myData.IsReady)
         {
-            readyButtonText.text = isReady ? "Listo" : "No listo";
+            if (readyButtonText) readyButtonText.text = "¡LISTO!";
+            // Cambiamos el color del botón o del fondo
+            if (readyButton) readyButton.image.color = readyStateColor;
         }
-        if (readyButtonImage != null)
+        else
         {
-            // Pon verde si está listo, rojo si no lo está
-            readyButtonImage.color = isReady ? Color.green : Color.red;
+            if (readyButtonText) readyButtonText.text = "No Listo";
+            if (readyButton) readyButton.image.color = notReadyColor;
         }
     }
 }
