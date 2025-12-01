@@ -6570,7 +6570,7 @@ MonoBehaviour:
   estaminaMaxima: 100
   staminaChargeRate: 20
   rotationSpeed: 15
-  jumpForce: 20
+  jumpForce: 9
   groundCheck: {fileID: 4407747363217498156}
   groundMask:
     serializedVersion: 2
