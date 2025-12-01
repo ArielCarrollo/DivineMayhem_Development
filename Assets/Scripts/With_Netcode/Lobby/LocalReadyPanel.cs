@@ -5,10 +5,10 @@ using UnityEngine.InputSystem;
 
 public class LocalReadyPanel : MonoBehaviour
 {
-    [Header("Referencias UI (Automáticas o Manuales)")]
+    [Header("Referencias UI")]
     [SerializeField] private TextMeshProUGUI nameText;
-    [SerializeField] private Button readyButton;
-    [SerializeField] private TextMeshProUGUI readyButtonText; // El texto dentro del botón
+    [SerializeField] public Button ReadyButton; // Público para que el Manager acceda
+    [SerializeField] private TextMeshProUGUI readyButtonText;
     [SerializeField] private Image panelBackground;
 
     [Header("Configuración Visual")]
@@ -17,6 +17,8 @@ public class LocalReadyPanel : MonoBehaviour
 
     private LocalLobbyManager manager;
     private LocalPlayerData myData;
+
+    // Ya no necesitamos guardar el input aquí para eventos, solo para info si hiciera falta
     private PlayerInput myInput;
 
     public void Initialize(LocalLobbyManager lobbyManager, LocalPlayerData data, PlayerInput input, Color playerColor)
@@ -25,56 +27,35 @@ public class LocalReadyPanel : MonoBehaviour
         myData = data;
         myInput = input;
 
-        // 1. AUTO-BUSCAR REFERENCIAS si no están asignadas
-        // Busca un hijo llamado "name" (como pediste)
-        if (nameText == null)
-            nameText = transform.Find("name")?.GetComponent<TextMeshProUGUI>();
+        // 1. AUTO-BUSCAR REFERENCIAS
+        if (nameText == null) nameText = transform.Find("name")?.GetComponent<TextMeshProUGUI>();
+        if (ReadyButton == null) ReadyButton = transform.Find("ReadyButton")?.GetComponent<Button>();
+        if (ReadyButton != null && readyButtonText == null) readyButtonText = ReadyButton.GetComponentInChildren<TextMeshProUGUI>();
 
-        // Busca un hijo llamado "ReadyButton"
-        if (readyButton == null)
-            readyButton = transform.Find("ReadyButton")?.GetComponent<Button>();
-
-        // Busca el texto dentro del botón (opcional)
-        if (readyButton != null && readyButtonText == null)
-            readyButtonText = readyButton.GetComponentInChildren<TextMeshProUGUI>();
-
-        // 2. APLICAR COLOR DE JUGADOR
+        // 2. APLICAR DATOS
         if (nameText != null)
         {
             nameText.text = data.Username;
-            nameText.color = playerColor; // <--- AQUÍ APLICAMOS EL COLOR DEL PUNTERO
+            nameText.color = playerColor;
         }
 
-        // 3. CONFIGURAR BOTÓN DE UI (Para clic con cursor virtual)
-        if (readyButton != null)
+        // 3. CONFIGURAR BOTÓN (Solo UI)
+        if (ReadyButton != null)
         {
-            readyButton.onClick.RemoveAllListeners();
-            readyButton.onClick.AddListener(OnSubmitUI);
+            // Limpiamos listeners previos para evitar duplicados
+            ReadyButton.onClick.RemoveAllListeners();
+            // Asignamos la función que se ejecuta SOLO al hacer clic en este botón
+            ReadyButton.onClick.AddListener(OnSubmitUI);
         }
 
-        // 4. CONFIGURAR INPUT DE MANDO (Para botón físico 'A' o 'X')
-        // Usamos el action map "UI" o "Player" según tengas configurado
-        if (myInput.actions.FindAction("Submit") != null)
-            myInput.actions["Submit"].performed += OnSubmitPressed;
+        // --- CORRECCIÓN ---
+        // HEMOS ELIMINADO la suscripción a myInput.actions["Submit"].performed.
+        // Ahora dependemos 100% del MultiplayerEventSystem y el botón de UI.
 
         UpdateUI();
     }
 
-    private void OnDestroy()
-    {
-        if (myInput != null && myInput.actions.FindAction("Submit") != null)
-        {
-            myInput.actions["Submit"].performed -= OnSubmitPressed;
-        }
-    }
-
-    // Se llama si pulsas el botón físico del mando
-    private void OnSubmitPressed(InputAction.CallbackContext ctx)
-    {
-        ToggleReady();
-    }
-
-    // Se llama si haces clic con el puntero virtual en el botón "ReadyButton"
+    // Este método solo se llama si el MultiplayerEventSystem "hace clic" en el botón ReadyButton
     private void OnSubmitUI()
     {
         ToggleReady();
@@ -94,13 +75,12 @@ public class LocalReadyPanel : MonoBehaviour
         if (myData.IsReady)
         {
             if (readyButtonText) readyButtonText.text = "¡LISTO!";
-            // Cambiamos el color del botón o del fondo
-            if (readyButton) readyButton.image.color = readyStateColor;
+            if (ReadyButton) ReadyButton.image.color = readyStateColor;
         }
         else
         {
             if (readyButtonText) readyButtonText.text = "No Listo";
-            if (readyButton) readyButton.image.color = notReadyColor;
+            if (ReadyButton) ReadyButton.image.color = notReadyColor;
         }
     }
 }

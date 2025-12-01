@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.UI; // Necesario para MultiplayerEventSystem
 
 public class LocalPlayerContext : MonoBehaviour
 {
@@ -7,14 +8,17 @@ public class LocalPlayerContext : MonoBehaviour
     public static System.Action<LocalPlayerContext> OnPlayerLeftContext;
 
     [Header("Referencias")]
-    [SerializeField] private GameObject cursorPrefab;
+    // Arrastra aquí el PREFAB del marco (una imagen con borde transparente)
+    [SerializeField] private GameObject selectorFramePrefab;
 
     [Header("Debug")]
-    [SerializeField] private bool showDebugLogs = true; // Actívalo en el inspector
+    [SerializeField] private bool showDebugLogs = true;
 
     public LocalPlayerData Data { get; private set; }
     public PlayerInput Input { get; private set; }
-    public GamepadVirtualCursor MyCursor { get; private set; }
+
+    // Referencia al objeto visual del marco
+    private MultiplayerSelectorVisual mySelectorVisual;
 
     private void Awake()
     {
@@ -24,14 +28,7 @@ public class LocalPlayerContext : MonoBehaviour
 
     private void Start()
     {
-        // DEBUG: Confirmación de conexión
-        if (showDebugLogs)
-        {
-            string devName = Input.devices.Count > 0 ? Input.devices[0].displayName : "Desconocido";
-            Debug.Log($"<color=green>[CONEXIÓN]</color> ¡Jugador {Input.playerIndex} se ha unido! Usando: {devName}");
-        }
-
-        // 1. Inicializar Datos
+        // 1. Configurar Datos
         int index = Input.playerIndex;
         Data = new LocalPlayerData
         {
@@ -41,64 +38,81 @@ public class LocalPlayerContext : MonoBehaviour
             Level = 1
         };
 
-        // 2. Crear Cursor
-        SpawnCursor();
+        // 2. Configurar la UI para Multijugador
+        // El PlayerInput ya debería tener "UI Input Module" si usas el prefab por defecto,
+        // pero nos aseguramos de asignar el root de la UI.
+        ConfigureMultiplayerUI();
 
-        // 3. Suscribirse a eventos de input para DEBUG
-        // Esto disparará un log cada vez que hagas CUALQUIER cosa con el mando
-        if (showDebugLogs)
-        {
-            Input.onActionTriggered += HandleDebugInput;
-        }
+        // 3. Crear el Marco Visual (Selector)
+        SpawnSelector();
 
+        if (showDebugLogs) Debug.Log($"[CONEXIÓN] Jugador {index} listo.");
         OnPlayerJoinedContext?.Invoke(this);
     }
 
-    private void HandleDebugInput(InputAction.CallbackContext ctx)
+    private void ConfigureMultiplayerUI()
     {
-        // Solo mostramos logs cuando se "realiza" la acción (botón presionado o stick movido)
-        // para no saturar la consola.
-        if (ctx.performed)
+        // 1. Asegurar que el mapa UI está habilitado
+        if (Input.actions.FindActionMap("UI") != null)
         {
-            Debug.Log($"[INPUT P{Input.playerIndex}] Acción: <b>{ctx.action.name}</b> | Valor: {ctx.ReadValueAsObject()}");
+            Input.actions.FindActionMap("UI").Enable();
+        }
+
+        // 2. Configurar el módulo UI
+        var uiModule = GetComponent<InputSystemUIInputModule>();
+        if (uiModule != null)
+        {
+            // Asignar acciones por código si se pierden las referencias del inspector
+            // (Esto es un "seguro de vida", idealmente hazlo en el Inspector del prefab)
+            uiModule.move = InputActionReference.Create(Input.actions["UI/Navigate"]);
+            uiModule.submit = InputActionReference.Create(Input.actions["UI/Submit"]);
+            uiModule.cancel = InputActionReference.Create(Input.actions["UI/Cancel"]);
+        }
+
+        // 3. Seleccionar primer botón (del script anterior)
+        FindFirstButton();
+    }
+
+    private void FindFirstButton()
+    {
+        // Buscamos un botón activo en el canvas para seleccionarlo al inicio
+        // Nota: Mejor tener un "FirstSelected" en tu GameManager, esto es un fallback.
+        var btn = FindFirstObjectByType<UnityEngine.UI.Button>();
+        if (btn != null)
+        {
+            // Forzamos la selección en el EventSystem de ESTE jugador
+            var eventSystem = GetComponent<UnityEngine.EventSystems.EventSystem>();
+            if (eventSystem != null)
+            {
+                eventSystem.SetSelectedGameObject(btn.gameObject);
+            }
         }
     }
 
-    private void SpawnCursor()
+    private void SpawnSelector()
     {
+        // Buscamos el Canvas
         GameObject canvasObj = GameObject.FindGameObjectWithTag("MainCanvas");
-        Canvas canvas = canvasObj != null ? canvasObj.GetComponent<Canvas>() : FindFirstObjectByType<Canvas>();
-
-        if (canvas != null && cursorPrefab != null)
+        if (canvasObj != null && selectorFramePrefab != null)
         {
-            GameObject cursorObj = Instantiate(cursorPrefab, canvas.transform);
-            MyCursor = cursorObj.GetComponent<GamepadVirtualCursor>();
+            GameObject selectorObj = Instantiate(selectorFramePrefab, canvasObj.transform);
 
-            RectTransform cursorRect = cursorObj.GetComponent<RectTransform>();
-            cursorRect.anchoredPosition = Vector2.zero;
-            cursorObj.transform.SetAsLastSibling();
+            // Script visual
+            mySelectorVisual = selectorObj.GetComponent<MultiplayerSelectorVisual>();
 
+            // Obtenemos el EventSystem local de este jugador
+            var myEventSystem = GetComponent<UnityEngine.EventSystems.EventSystem>();
+
+            // Inicializamos el visual con mi EventSystem y mi color
             Color pColor = GetColorForIndex(Input.playerIndex);
-
-            // Pasamos el índice también para el debug visual
-            MyCursor.Initialize(Input, pColor, Input.playerIndex);
-        }
-        else
-        {
-            Debug.LogError("¡LocalPlayerContext no encontró un Canvas!");
+            mySelectorVisual.Initialize(myEventSystem, pColor, Input.playerIndex);
         }
     }
 
     private void OnDestroy()
     {
-        if (showDebugLogs)
-        {
-            Debug.Log($"<color=red>[DESCONEXIÓN]</color> Jugador {Input.playerIndex} ha salido.");
-            if (Input != null) Input.onActionTriggered -= HandleDebugInput;
-        }
-
         OnPlayerLeftContext?.Invoke(this);
-        if (MyCursor != null) Destroy(MyCursor.gameObject);
+        if (mySelectorVisual != null) Destroy(mySelectorVisual.gameObject);
     }
 
     private Color GetColorForIndex(int index)

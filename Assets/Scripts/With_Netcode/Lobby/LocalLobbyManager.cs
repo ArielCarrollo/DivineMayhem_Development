@@ -86,6 +86,11 @@ public class LocalLobbyManager : MonoBehaviour
 
             activePanels.Add(context, panelScript);
             UpdateLobbyStatus();
+            var pEventSystem = context.GetComponent<UnityEngine.EventSystems.EventSystem>();
+            if (pEventSystem != null && panelScript.ReadyButton != null)
+            {
+                pEventSystem.SetSelectedGameObject(panelScript.ReadyButton.gameObject);
+            }
         }
     }
 
