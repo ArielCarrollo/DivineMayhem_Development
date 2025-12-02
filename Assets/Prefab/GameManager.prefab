@@ -46,10 +46,11 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   MinigameScenes:
-  - GameVegui
+  - Crown Catching
+  - Crazy Ball
+  - Falling Floor
   TotalRounds: 5
   CurrentRound: 0
-  IsRandomOrder: 1
 --- !u!114 &3113148977895192487
 MonoBehaviour:
   m_ObjectHideFlags: 0

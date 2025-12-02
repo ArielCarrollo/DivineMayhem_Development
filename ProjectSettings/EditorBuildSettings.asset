@@ -20,6 +20,18 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/GameVegui.unity
     guid: 194774b13ecaf1a48be4c55c9ca20eab
+  - enabled: 1
+    path: Assets/Scenes/Gameplay/CrownCatching.unity
+    guid: b95aa0d0806019d4bb654521c99a05ca
+  - enabled: 1
+    path: Assets/Scenes/Gameplay/Falling Floor.unity
+    guid: 681fe4179f904dc4293c079d913f79f8
+  - enabled: 1
+    path: Assets/Scenes/Gameplay/Crazy Ball.unity
+    guid: 9dc1161d816d8284091f26884ebb87ae
+  - enabled: 1
+    path: Assets/Scenes/Gameplay/Crown Catching.unity
+    guid: 7ee64da1f92429145a86d8ad9aa17413
   m_configObjects:
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   m_UseUCBPForAssetBundles: 0
