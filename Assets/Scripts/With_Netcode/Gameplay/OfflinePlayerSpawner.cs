@@ -65,7 +65,13 @@ public class OfflinePlayerSpawner : MonoBehaviour
         pInput.transform.position = position;
         pInput.transform.rotation = rotation;
         pInput.name = $"Player_{data.PlayerIndex + 1}_{data.Username}";
-
+        // --- CORRECCIÓN DE ÍNDICES ---
+        var charBase = pInput.GetComponent<CharacterBase>();
+        if (charBase != null)
+        {
+            // Forzamos el índice que viene del GameManager (0, 1, 2...)
+            charBase.SetPlayerInfo(data.PlayerIndex, data.Username);
+        }
         // D. APLICAR DATOS VISUALES (Skin)
         // Buscamos el script de apariencia que hicimos antes
         var appearance = pInput.GetComponent<PlayerAppearance>();
@@ -76,7 +82,6 @@ public class OfflinePlayerSpawner : MonoBehaviour
 
         // E. REGISTRARSE AUTOMÁTICAMENTE
         // (Tu CharacterBase ya hace esto en Start, pero es bueno asegurarse o pasarle datos extra si hace falta)
-        var charBase = pInput.GetComponent<CharacterBase>();
         if (charBase != null)
         {
             // Opcional: Si quieres pasarle el nombre para que lo muestre encima de la cabeza

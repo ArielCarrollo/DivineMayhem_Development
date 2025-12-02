@@ -22,6 +22,14 @@ public abstract class CharacterBase : MonoBehaviour
     [SerializeField, Tooltip("Velocidad de giro visual.")]
     private float rotationSpeed = 20f;
 
+    [Header("Mecánicas Globales")]
+    [SerializeField] private float maxInactivityTime = 5f; // Tiempo antes de morir
+    [SerializeField] private float pushCooldown = 3f;      // Cooldown del empuje
+    public float InactivityTimer { get; private set; }
+    public float PushTimer { get; private set; }
+    public float MaxInactivityTime => maxInactivityTime;
+    public float PushCooldown => pushCooldown;
+
     // --- Referencias Visuales ---
     [SerializeField] private GameObject crownVisual;
 
@@ -100,6 +108,8 @@ public abstract class CharacterBase : MonoBehaviour
             gc.transform.localPosition = new Vector3(0, 0.05f, 0);
             groundCheck = gc.transform;
         }
+        InactivityTimer = maxInactivityTime;
+        PushTimer = 0f;
     }
 
     protected virtual void Start()
@@ -113,7 +123,11 @@ public abstract class CharacterBase : MonoBehaviour
         if (MinigameManager.Instance != null) MinigameManager.Instance.RegisterPlayer(this);
         if (SurvivalGameManager.Instance != null) SurvivalGameManager.Instance.RegisterPlayer(this);
     }
-
+    public void SetPlayerInfo(int index, string username)
+    {
+        this.PlayerIndex = index;
+        this.name = $"Player_{index + 1}_{username}"; // Nombre en Jerarquía
+    }
     protected virtual void OnEnable()
     {
         if (playerInput != null)
@@ -173,18 +187,63 @@ public abstract class CharacterBase : MonoBehaviour
 
     protected virtual void NormalAttack()
     {
+        if (PushTimer > 0) return;
         if (Time.time < nextAttackTime) return;
         nextAttackTime = Time.time + attackCooldown;
 
         if (animator) animator.SetTrigger(AnimAttack);
         StartCoroutine(HitCheckRoutine());
+        PushTimer = pushCooldown;
     }
+    private void DieByInactivity()
+    {
+        if (!gameObject.activeSelf) return; // Ya está muerto
 
+        Debug.Log($"Jugador {PlayerIndex + 1} se durmió.");
+
+        // 1. Soltar Corona si la tiene
+        if (IsKing && CrownGameManager.Instance != null)
+        {
+            CrownGameManager.Instance.TransferCrown(null);
+        }
+
+        // 2. Efecto de Cámara
+        if (GameManager.Instance != null)
+            GameManager.Instance.TriggerCameraShake();
+
+        // 3. Desactivar jugador (No destruir)
+        gameObject.SetActive(false);
+
+        // Nota: El HUD detectará que se desactivó y cambiará el texto
+    }
     protected virtual void UltimateAttack() { }
 
     private void StartCharging() { /* Lógica carga estamina */ }
     private void StopCharging() { /* Lógica fin carga */ }
 
+    protected virtual void Update()
+    {
+        // 1. Lógica de Inactividad
+        if (rb.linearVelocity.magnitude > 0.1f)
+        {
+            // Si se mueve, recupera vida (opcional) o resetea el timer
+            InactivityTimer += Time.deltaTime * 2f;
+        }
+        else
+        {
+            InactivityTimer -= Time.deltaTime;
+        }
+
+        InactivityTimer = Mathf.Clamp(InactivityTimer, 0, maxInactivityTime);
+
+        if (InactivityTimer <= 0)
+        {
+            DieByInactivity();
+        }
+
+        // 2. Cooldown de Empuje
+        if (PushTimer > 0) PushTimer -= Time.deltaTime;
+    }
     // --- FÍSICAS MEJORADAS (FixedUpdate) ---
 
     protected virtual void FixedUpdate()

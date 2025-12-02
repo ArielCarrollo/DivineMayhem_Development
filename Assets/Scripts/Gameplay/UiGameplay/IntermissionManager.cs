@@ -1,90 +1,89 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using System.Collections.Generic;
+using System.Linq; // Necesario para ordenar listas
 
 public class IntermissionUI : MonoBehaviour
 {
     [Header("Referencias UI")]
     [SerializeField] private TextMeshProUGUI rankingText;
-    [SerializeField] private Button readyButton;
+    [SerializeField] private Button continueButton;
     [SerializeField] private TextMeshProUGUI statusText;
-    [SerializeField] private TextMeshProUGUI buttonText;
+    [SerializeField] private TextMeshProUGUI roundsText;
 
+    // Solo el P1 debería poder dar a continuar, o hacerlo automático
     private bool isReady = false;
 
-    private void OnEnable()
+    private void Start()
     {
-        if (readyButton != null)
+        // 1. Mostrar Rondas Restantes
+        if (GameManager.Instance != null && roundsText != null)
         {
-            readyButton.interactable = true;
-            readyButton.onClick.AddListener(OnReadyClicked);
+            roundsText.text = $"Ronda {GameManager.Instance.CurrentRound} / {GameManager.Instance.TotalRounds}";
         }
 
-        isReady = false;
-        if (buttonText) buttonText.text = "¡LISTO!";
-        if (statusText) statusText.text = "¡Presiona LISTO para continuar!";
-
+        // 2. Mostrar Ranking
         UpdateRankingDisplay();
-    }
 
-    private void OnDisable()
-    {
-        if (readyButton != null)
-            readyButton.onClick.RemoveListener(OnReadyClicked);
+        // 3. Configurar Botón (Solo P1 o Automático)
+        if (continueButton != null)
+        {
+            continueButton.onClick.AddListener(OnContinueClicked);
+            // Opcional: Seleccionarlo automáticamente para que el P1 pueda pulsarlo con mando
+            UnityEngine.EventSystems.EventSystem.current.SetSelectedGameObject(continueButton.gameObject);
+        }
+
+        // Opcional: Auto-continuar después de 5 segundos
+        // StartCoroutine(AutoContinueRoutine());
     }
 
     private void UpdateRankingDisplay()
     {
-        if (rankingText == null || GlobalGameManager.Instance == null)
-            return;
+        if (rankingText == null || GameManager.Instance == null) return;
 
-        var scores = GlobalGameManager.Instance.GetAllScores();
-        string ranking = "RANKING GLOBAL:\n\n";
+        // Obtenemos la lista de jugadores y la ordenamos por puntuación (Descendente)
+        List<LocalPlayerData> sortedPlayers = GameManager.Instance.LocalPlayers
+            .OrderByDescending(p => p.MatchScore)
+            .ToList();
 
-        if (scores == null || scores.Count == 0)
+        string ranking = "<size=120%>RANKING GLOBAL</size>\n\n";
+
+        for (int i = 0; i < sortedPlayers.Count; i++)
         {
-            ranking += "Cargando puntajes...";
-        }
-        else
-        {
-            foreach (var entry in scores)
-            {
-                ranking += $"{entry.playerName}: {entry.score} pts\n";
-            }
+            var p = sortedPlayers[i];
+            string colorHex = GetColorHex(p.PlayerIndex);
+
+            // Ejemplo: "1. [P1] Jugador 1: 150 pts"
+            ranking += $"{i + 1}. <color={colorHex}>{p.Username}</color>: <b>{p.MatchScore} pts</b>\n";
         }
 
         rankingText.text = ranking;
-        rankingText.SetAllDirty();
     }
 
-    public void UpdateReadyCount(int current, int total)
+    private void OnContinueClicked()
     {
-        if (buttonText != null)
+        if (isReady) return;
+        isReady = true;
+
+        if (statusText) statusText.text = "Cargando siguiente juego...";
+
+        // Llamamos al GameManager para que saque el siguiente juego de la cola
+        if (GameManager.Instance != null)
         {
-            buttonText.text = $"Esperando... ({current}/{total})";
+            GameManager.Instance.LoadNextMinigame();
         }
     }
 
-    private void OnReadyClicked()
+    private string GetColorHex(int index)
     {
-        if (isReady) return;
-
-        isReady = true;
-        if (readyButton != null)
-            readyButton.interactable = false;
-
-        if (statusText) statusText.text = "Esperando a los demás...";
-        if (buttonText) buttonText.text = "Enviando...";
-
-        //// Minijuego de corona
-        //if (MinigameManager.Instance != null)
-        //{
-        //    MinigameManager.Instance.ClientIsReady();
-        //}
-        //// Supervivencia
-        //else if (SurvivalGameManager.Instance != null)
-        //{
-        //    SurvivalGameManager.Instance.ClientIsReady();
-        //}
+        switch (index)
+        {
+            case 0: return "#0000FF"; // Azul
+            case 1: return "#FF0000"; // Rojo
+            case 2: return "#00FF00"; // Verde
+            case 3: return "#FFFF00"; // Amarillo
+            default: return "#FFFFFF";
+        }
     }
 }

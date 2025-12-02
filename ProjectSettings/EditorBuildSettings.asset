@@ -21,7 +21,7 @@ EditorBuildSettings:
     path: Assets/Scenes/GameVegui.unity
     guid: 194774b13ecaf1a48be4c55c9ca20eab
   - enabled: 1
-    path: Assets/Scenes/Gameplay/CrownCatching.unity
+    path: Assets/Scenes/CrownCatching.unity
     guid: b95aa0d0806019d4bb654521c99a05ca
   - enabled: 1
     path: Assets/Scenes/Gameplay/Falling Floor.unity

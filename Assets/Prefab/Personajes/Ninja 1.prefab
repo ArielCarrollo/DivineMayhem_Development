@@ -6382,13 +6382,15 @@ MonoBehaviour:
   airControlMultiplier: 0.5
   fallMultiplier: 2.5
   rotationSpeed: 15
+  maxInactivityTime: 5
+  pushCooldown: 3
   crownVisual: {fileID: 2076978932865006635}
   hitPoint: {fileID: 408424511477385107}
   hitRadius: 0.5
   punchForce: 10
   hitableLayers:
     serializedVersion: 2
-    m_Bits: 0
+    m_Bits: 1
   attackDelay: 0.3
   attackCooldown: 0.8
   knockbackDuration: 1

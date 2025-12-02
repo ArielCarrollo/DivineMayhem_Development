@@ -1,8 +1,9 @@
-using System.Collections.Generic;
 using System.Collections;
-using UnityEngine;
-using UnityEngine.UI; // Necesario para Button
+using System.Collections.Generic;
 using TMPro;
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI; // Necesario para Button
 
 public class LocalLobbyManager : MonoBehaviour
 {
@@ -143,27 +144,38 @@ public class LocalLobbyManager : MonoBehaviour
             activePanels.Add(context, panelScript);
             UpdateLobbyStatus();
 
-            var pEventSystem = context.GetComponent<UnityEngine.EventSystems.EventSystem>();
+            var pEventSystem = context.GetComponent<EventSystem>();
 
             if (pEventSystem != null && panelScript.ReadyButton != null)
             {
-                pEventSystem.SetSelectedGameObject(panelScript.ReadyButton.gameObject);
+                // CORRECCIÓN 1: Usar corrutina para seleccionar al siguiente frame (más seguro)
+                StartCoroutine(SelectButtonNextFrame(pEventSystem, panelScript.ReadyButton.gameObject));
 
                 if (context.Input.playerIndex == 0)
                 {
-                    // === AQUÍ ESTÁ LA CORRECCIÓN ===
-                    // Configuramos TODA la red de navegación para el P1
+                    // P1 controla configuración
                     SetupP1Navigation(panelScript.ReadyButton);
                 }
                 else
                 {
-                    // P2, P3, P4 bloqueados en su botón
+                    // CORRECCIÓN 2: En lugar de 'None', usamos 'Explicit' apuntando a sí mismo.
+                    // Esto evita que el EventSystem deseleccione el botón si mueven el stick.
                     Navigation nav = new Navigation();
-                    nav.mode = Navigation.Mode.None;
+                    nav.mode = Navigation.Mode.Explicit;
+                    nav.selectOnUp = panelScript.ReadyButton;
+                    nav.selectOnDown = panelScript.ReadyButton;
+                    nav.selectOnLeft = panelScript.ReadyButton;
+                    nav.selectOnRight = panelScript.ReadyButton;
                     panelScript.ReadyButton.navigation = nav;
                 }
             }
         }
+    }
+    private IEnumerator SelectButtonNextFrame(EventSystem es, GameObject btn)
+    {
+        yield return null; // Esperar un frame
+        es.SetSelectedGameObject(null); // Limpiar
+        es.SetSelectedGameObject(btn);  // Seleccionar
     }
 
     // --- NUEVO MÉTODO PARA COSER LOS BOTONES ---

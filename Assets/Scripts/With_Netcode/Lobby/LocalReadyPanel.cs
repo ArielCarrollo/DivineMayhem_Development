@@ -2,14 +2,14 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using UnityEngine.InputSystem;
+using UnityEngine.EventSystems;
 
 public class LocalReadyPanel : MonoBehaviour
 {
     [Header("Referencias UI")]
     [SerializeField] private TextMeshProUGUI nameText;
-    [SerializeField] public Button ReadyButton; // Público para que el Manager acceda
+    [SerializeField] public Button ReadyButton;
     [SerializeField] private TextMeshProUGUI readyButtonText;
-    [SerializeField] private Image panelBackground;
 
     [Header("Configuración Visual")]
     [SerializeField] private Color notReadyColor = new Color(0.2f, 0.2f, 0.2f, 0.5f);
@@ -17,15 +17,15 @@ public class LocalReadyPanel : MonoBehaviour
 
     private LocalLobbyManager manager;
     private LocalPlayerData myData;
-
-    // Ya no necesitamos guardar el input aquí para eventos, solo para info si hiciera falta
+    private EventSystem myEventSystem;
     private PlayerInput myInput;
 
     public void Initialize(LocalLobbyManager lobbyManager, LocalPlayerData data, PlayerInput input, Color playerColor)
     {
         manager = lobbyManager;
         myData = data;
-        myInput = input;
+        myInput = input; // Guardamos referencia al input
+        myEventSystem = input.GetComponent<EventSystem>();
 
         // 1. AUTO-BUSCAR REFERENCIAS
         if (nameText == null) nameText = transform.Find("name")?.GetComponent<TextMeshProUGUI>();
@@ -39,26 +39,48 @@ public class LocalReadyPanel : MonoBehaviour
             nameText.color = playerColor;
         }
 
-        // 3. CONFIGURAR BOTÓN (Solo UI)
-        if (ReadyButton != null)
-        {
-            // Limpiamos listeners previos para evitar duplicados
-            ReadyButton.onClick.RemoveAllListeners();
-            // Asignamos la función que se ejecuta SOLO al hacer clic en este botón
-            ReadyButton.onClick.AddListener(OnSubmitUI);
-        }
+        // 3. SUSCRIPCIÓN DIRECTA A HARDWARE (La solución "Fuerza Bruta")
+        // Buscamos la acción 'Submit' en el mapa 'UI' o 'Player'
+        InputAction submitAction = myInput.actions.FindAction("Submit"); // Mapa UI
+        if (submitAction == null) submitAction = myInput.actions.FindAction("Jump"); // Fallback si no tienes mapa UI (Botón Sur)
 
-        // --- CORRECCIÓN ---
-        // HEMOS ELIMINADO la suscripción a myInput.actions["Submit"].performed.
-        // Ahora dependemos 100% del MultiplayerEventSystem y el botón de UI.
+        if (submitAction != null)
+        {
+            submitAction.performed += OnHardwareSubmit;
+        }
 
         UpdateUI();
     }
 
-    // Este método solo se llama si el MultiplayerEventSystem "hace clic" en el botón ReadyButton
-    private void OnSubmitUI()
+    private void OnDestroy()
     {
-        ToggleReady();
+        // Limpieza obligatoria para no dejar eventos colgados
+        if (myInput != null)
+        {
+            InputAction submitAction = myInput.actions.FindAction("Submit");
+            if (submitAction == null) submitAction = myInput.actions.FindAction("Jump");
+
+            if (submitAction != null) submitAction.performed -= OnHardwareSubmit;
+        }
+    }
+
+    // Esta función se ejecuta SIEMPRE que aprietes "A", sin importar dónde estés
+    private void OnHardwareSubmit(InputAction.CallbackContext ctx)
+    {
+        // FILTRO DE SEGURIDAD:
+        // Solo hacemos caso al botón "A" si el selector del jugador está ENCIMA de este botón.
+        // Esto permite que el P2 funcione (siempre está encima) 
+        // y que el P1 NO se ponga listo si está tocando los botones de configuración.
+        if (IsMyButtonSelected())
+        {
+            ToggleReady();
+        }
+    }
+
+    private bool IsMyButtonSelected()
+    {
+        if (myEventSystem == null || ReadyButton == null) return false;
+        return myEventSystem.currentSelectedGameObject == ReadyButton.gameObject;
     }
 
     private void ToggleReady()
@@ -66,6 +88,18 @@ public class LocalReadyPanel : MonoBehaviour
         myData.IsReady = !myData.IsReady;
         manager.OnPlayerReadyChange();
         UpdateUI();
+    }
+
+    // El Update se queda como guardián por si se pierde la selección visual
+    private void Update()
+    {
+        if (myEventSystem != null && ReadyButton != null)
+        {
+            if (myEventSystem.currentSelectedGameObject == null && myEventSystem.gameObject.activeInHierarchy)
+            {
+                myEventSystem.SetSelectedGameObject(ReadyButton.gameObject);
+            }
+        }
     }
 
     private void UpdateUI()
