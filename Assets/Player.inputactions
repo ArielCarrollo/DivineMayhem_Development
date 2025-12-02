@@ -6,16 +6,16 @@
             "id": "55b4e3fa-1d45-4b99-b02f-b7af923360a7",
             "actions": [
                 {
-                    "name": "Movimiento",
+                    "name": "Move",
                     "type": "Value",
                     "id": "bd7a9ab0-8a8a-4260-ad30-b0b71dc36246",
-                    "expectedControlType": "Axis",
+                    "expectedControlType": "Vector2",
                     "processors": "",
                     "interactions": "",
                     "initialStateCheck": true
                 },
                 {
-                    "name": "Salto",
+                    "name": "Jump",
                     "type": "Button",
                     "id": "ddd0da71-e5aa-4472-81ef-1d3346ca625f",
                     "expectedControlType": "",
@@ -24,7 +24,7 @@
                     "initialStateCheck": false
                 },
                 {
-                    "name": "Aataq",
+                    "name": "Fire",
                     "type": "Button",
                     "id": "1e3f47cf-dd3e-42e0-871b-76967adcc548",
                     "expectedControlType": "",
@@ -50,7 +50,7 @@
                     "interactions": "",
                     "processors": "",
                     "groups": "",
-                    "action": "Salto",
+                    "action": "Jump",
                     "isComposite": false,
                     "isPartOfComposite": false
                 },
@@ -61,7 +61,7 @@
                     "interactions": "",
                     "processors": "",
                     "groups": "",
-                    "action": "Salto",
+                    "action": "Jump",
                     "isComposite": false,
                     "isPartOfComposite": false
                 },
@@ -72,7 +72,7 @@
                     "interactions": "",
                     "processors": "",
                     "groups": "",
-                    "action": "Aataq",
+                    "action": "Fire",
                     "isComposite": false,
                     "isPartOfComposite": false
                 },
@@ -83,62 +83,18 @@
                     "interactions": "",
                     "processors": "",
                     "groups": "",
-                    "action": "Aataq",
-                    "isComposite": false,
-                    "isPartOfComposite": false
-                },
-                {
-                    "name": "1D Axis",
-                    "id": "a7e0b648-7a3e-4446-81fe-74490894e7e5",
-                    "path": "1DAxis",
-                    "interactions": "",
-                    "processors": "",
-                    "groups": "",
-                    "action": "Movimiento",
-                    "isComposite": true,
-                    "isPartOfComposite": false
-                },
-                {
-                    "name": "negative",
-                    "id": "de645d64-37df-4c3b-b3ed-b8b3280ae44a",
-                    "path": "<Keyboard>/a",
-                    "interactions": "",
-                    "processors": "",
-                    "groups": "",
-                    "action": "Movimiento",
-                    "isComposite": false,
-                    "isPartOfComposite": true
-                },
-                {
-                    "name": "positive",
-                    "id": "d224231f-77b3-42a0-9fff-a8601b715fca",
-                    "path": "<Keyboard>/d",
-                    "interactions": "",
-                    "processors": "",
-                    "groups": "",
-                    "action": "Movimiento",
-                    "isComposite": false,
-                    "isPartOfComposite": true
-                },
-                {
-                    "name": "",
-                    "id": "ae02ff29-8f4b-498b-84af-5742482b5931",
-                    "path": "<XInputController>/leftStick/x",
-                    "interactions": "",
-                    "processors": "",
-                    "groups": "",
-                    "action": "Movimiento",
+                    "action": "Fire",
                     "isComposite": false,
                     "isPartOfComposite": false
                 },
                 {
                     "name": "",
-                    "id": "1156cd04-a66f-4f5b-933e-a185bb4a48f6",
-                    "path": "<Gamepad>/leftStick/x",
+                    "id": "c54cf53a-8208-4a6c-adca-7ce3dc56e2df",
+                    "path": "<Gamepad>/leftStick",
                     "interactions": "",
                     "processors": "",
                     "groups": "",
-                    "action": "Movimiento",
+                    "action": "Move",
                     "isComposite": false,
                     "isPartOfComposite": false
                 },

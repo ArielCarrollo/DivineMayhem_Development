@@ -2,409 +2,340 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using System.Collections;
 
-public enum PlayerState
-{
-    Normal,
-    Knockback,
-    Charging
-}
+public enum PlayerState { Normal, Knockback, Charging }
 
-[RequireComponent(typeof(Rigidbody))]
+[RequireComponent(typeof(Rigidbody), typeof(PlayerInput))]
 public abstract class CharacterBase : MonoBehaviour
 {
-    [Header("Stats Base del Personaje")]
-    [SerializeField] protected float velocidad = 5f;
+    [Header("Stats Base")]
+    [SerializeField] protected float velocidad = 8f; // Aumentado ligeramente para compensar aceleración
     [SerializeField] protected int vidaMaxima = 100;
-    [SerializeField] protected int fuerzaBase = 10;
-    [SerializeField] protected int nivelBase = 1;
     [SerializeField] protected float estaminaMaxima = 100f;
 
-    [Header("Lógica de Estamina")]
-    [SerializeField, Tooltip("Cuánta estamina se recarga por segundo")]
-    private float staminaChargeRate = 20f;
-    private Coroutine chargingCoroutine;
+    [Header("Fluidez de Movimiento (Physics)")]
+    [SerializeField] private float acceleration = 60f;    // Qué tan rápido alcanza la velocidad máxima
+    [SerializeField] private float deceleration = 40f;    // Qué tan rápido frena
+    [SerializeField] private float airControlMultiplier = 0.5f; // Control en el aire
+    [SerializeField] private float fallMultiplier = 2.5f; // Caída rápida (estilo Mario)
 
-    [Header("Lógica de Movimiento")]
-    [SerializeField, Tooltip("Qué tan rápido gira el personaje (más alto es más rápido)")]
-    private float rotationSpeed = 15f;
+    [Header("Lógica de Movimiento y Giro")]
+    [SerializeField, Tooltip("Velocidad de giro visual.")]
+    private float rotationSpeed = 20f;
 
-    [Header("Lógica de Salto")]
-    [SerializeField] private float jumpForce = 7f;
-    [SerializeField] private Transform groundCheck;
-    [SerializeField] private LayerMask groundMask;
-    [SerializeField] private float groundDistance = 0.3f;
+    // --- Referencias Visuales ---
+    [SerializeField] private GameObject crownVisual;
 
-    [Header("Configuración de Minijuego")]
-    [SerializeField, Tooltip("El GameObject de la corona (hijo de este prefab)")]
-    private GameObject crownVisual;
+    // --- Lógica de Ataque ---
+    [SerializeField] private Transform hitPoint;
+    [SerializeField] private float hitRadius = 0.5f;
+    [SerializeField] private float punchForce = 15f;
+    [SerializeField] private LayerMask hitableLayers;
+    [SerializeField] private float attackDelay = 0.1f;    // Reducido para mejor feedback
+    [SerializeField] private float attackCooldown = 0.5f;
 
-    [Header("Componentes")]
-    protected Rigidbody rb;
-    protected Animator animator;
+    // --- Knockback ---
+    [SerializeField] private float knockbackDuration = 0.5f;
+    [SerializeField] private float verticalKnockup = 7f;
 
-    [Header("Lógica de Ataque Básico")]
-    [SerializeField, Tooltip("El punto en la mano que detecta el golpe")]
-    private Transform hitPoint;
-
-    [SerializeField, Tooltip("El radio del golpe (qué tan grande es el 'puño')")]
-    private float hitRadius = 0.5f;
-
-    [SerializeField, Tooltip("La fuerza con la que el puñete lanza objetos")]
-    private float punchForce = 15f;
-
-    [SerializeField, Tooltip("Qué capas (Layers) pueden ser golpeadas por el puñete")]
-    private LayerMask hitableLayers;
-
-    [SerializeField, Tooltip("Segundos desde que se presiona el botón hasta que se registra el golpe")]
-    private float attackDelay = 0.3f;
-
-    [SerializeField, Tooltip("Tiempo total entre un ataque y el siguiente (cooldown)")]
-    private float attackCooldown = 0.8f;
-    private float nextAttackTime = 0f;
-
-    [Header("Lógica de Knockback")]
-    [SerializeField, Tooltip("Segundos que el jugador queda en estado 'Knockback'")]
-    private float knockbackDuration = 0.5f;
-    [SerializeField, Tooltip("La fuerza vertical (hacia arriba) fija del golpe")]
-    private float verticalKnockup = 7f;
-
-    // --------- ESTADO LOCAL (ya no NetworkVariables) ---------
-    public bool IsKing;
+    // --- ESTADO LOCAL ---
+    public int PlayerIndex { get; private set; }
+    public bool IsKing { get; private set; }
     public PlayerState CurrentState = PlayerState.Normal;
-    public int Vida;
-    public int Fuerza;
-    public int Nivel;
+    public float Vida;
     public float Estamina;
-
     public float EstaminaMaxima => estaminaMaxima;
 
-    private bool controlsEnabled = true;
+    protected Rigidbody rb;
+    protected Animator animator;
+    protected PlayerInput playerInput;
+
     private float moveInput;
     private bool isGrounded;
+    private float nextAttackTime = 0f;
+
+    // Referencias para detección de suelo
+    [Header("Detección de Suelo")]
+    [SerializeField] private Transform groundCheck; // Asigna un objeto vacío en los pies
+    [SerializeField] private float groundDistance = 0.2f;
+    [SerializeField] private LayerMask groundMask;
+
+    // Constantes de animación
+    private static readonly int AnimSpeed = Animator.StringToHash("Speed");
+    private static readonly int AnimJump = Animator.StringToHash("Jump");
+    private static readonly int AnimAttack = Animator.StringToHash("NormalAttack");
+    private static readonly int AnimGrounded = Animator.StringToHash("IsGrounded");
 
     protected virtual void Awake()
     {
         rb = GetComponent<Rigidbody>();
         animator = GetComponent<Animator>();
+        playerInput = GetComponent<PlayerInput>();
 
-        // Inicializar stats
+        // --- MEJORA FÍSICA: Material Resbaladizo ---
+        // Esto evita que el personaje se pegue a las paredes al saltar contra ellas
+        PhysicsMaterial slipperyMat = new PhysicsMaterial("PersonajeResbaladizo");
+        slipperyMat.dynamicFriction = 0f;
+        slipperyMat.staticFriction = 0f;
+        slipperyMat.frictionCombine = PhysicsMaterialCombine.Minimum;
+        slipperyMat.bounceCombine = PhysicsMaterialCombine.Minimum;
+
+        if (TryGetComponent<Collider>(out Collider col))
+        {
+            col.material = slipperyMat;
+        }
+
+        // Configuración óptima de Rigidbody para plataformas
+        rb.constraints = RigidbodyConstraints.FreezePositionZ | RigidbodyConstraints.FreezeRotation;
+        rb.interpolation = RigidbodyInterpolation.Interpolate;
+        rb.collisionDetectionMode = CollisionDetectionMode.Continuous;
+
         Vida = vidaMaxima;
-        Fuerza = fuerzaBase;
-        Nivel = nivelBase;
         Estamina = estaminaMaxima;
+
+        // Crear groundCheck si no existe para evitar errores
+        if (groundCheck == null)
+        {
+            GameObject gc = new GameObject("GroundCheck_Auto");
+            gc.transform.parent = transform;
+            gc.transform.localPosition = new Vector3(0, 0.05f, 0);
+            groundCheck = gc.transform;
+        }
+    }
+
+    protected virtual void Start()
+    {
+        PlayerIndex = playerInput.playerIndex;
+        RegisterSelfInGame();
+    }
+
+    private void RegisterSelfInGame()
+    {
+        if (MinigameManager.Instance != null) MinigameManager.Instance.RegisterPlayer(this);
+        if (SurvivalGameManager.Instance != null) SurvivalGameManager.Instance.RegisterPlayer(this);
     }
 
     protected virtual void OnEnable()
     {
-        OnKingStatusChanged(false, IsKing);
+        if (playerInput != null)
+        {
+            // 1. FORZAR CAMBIO DE MAPA
+            // Asegúrate de que en tu InputActions el mapa de mover se llame "Player"
+            playerInput.SwitchCurrentActionMap("Control");
+
+            // 2. Suscribirse a eventos
+            playerInput.onActionTriggered += HandleInput;
+        }
+        UpdateCrownVisual(IsKing);
     }
 
     protected virtual void OnDisable()
     {
-        // Aquí podrías desregistrarte de UIManager/MinigameManager si hace falta
+        if (playerInput != null) playerInput.onActionTriggered -= HandleInput;
     }
 
-    // ---------------- TELEPORT / MUERTE (LOCAL) ----------------
-
-    public void TeleportPlayer(Vector3 newPosition)
+    // --- MANEJO DE INPUT ---
+    private void HandleInput(InputAction.CallbackContext ctx)
     {
-        if (rb != null)
+        if (CurrentState == PlayerState.Knockback) return;
+
+        string actionName = ctx.action.name;
+
+        if (actionName == "Move" || actionName == "Navigate")
         {
-            rb.isKinematic = true;
-            rb.linearVelocity = Vector3.zero;
-            rb.angularVelocity = Vector3.zero;
+            Vector2 input = ctx.ReadValue<Vector2>();
+            moveInput = input.x;
         }
 
-        transform.position = newPosition;
-        transform.rotation = Quaternion.Euler(0, 90, 0);
-
-        if (rb != null)
-            rb.isKinematic = false;
-
-        SetInputActive(true);
-
-        if (animator) animator.Play("Idle");
-    }
-
-    /// <summary>
-    /// Versión local del "ServerTeleport": resetea estado y teleporta.
-    /// </summary>
-    public void ServerTeleport(Vector3 newPosition)
-    {
-        CurrentState = PlayerState.Normal;
-        IsKing = false;
-        TeleportPlayer(newPosition);
-    }
-
-    public void KillPlayer()
-    {
-        SetInputActive(false);
-
-        var col = GetComponent<Collider>();
-        if (col != null) col.enabled = false;
-
-        if (rb != null)
+        if (ctx.performed)
         {
-            rb.isKinematic = true;
-            rb.linearVelocity = Vector3.zero;
-            rb.angularVelocity = Vector3.zero;
-        }
-    }
-
-    private void OnKingStatusChanged(bool previousValue, bool newValue)
-    {
-        if (crownVisual != null)
-        {
-            crownVisual.SetActive(newValue);
-        }
-    }
-
-    public void SetInputActive(bool isActive)
-    {
-        controlsEnabled = isActive;
-
-        if (!isActive && rb != null)
-        {
-            rb.linearVelocity = Vector3.zero;
-            rb.angularVelocity = Vector3.zero;
-            moveInput = 0;
-
-            if (animator) animator.SetFloat("Speed", 0);
-        }
-    }
-
-    // ---------------- MANEJO DE INPUT (New Input System) ----------------
-
-    public virtual void OnMove(InputAction.CallbackContext context)
-    {
-        if (!controlsEnabled || CurrentState != PlayerState.Normal)
-        {
-            moveInput = 0;
-            return;
+            if (actionName == "Jump") Jump();
+            if (actionName == "Fire" || actionName == "Submit") NormalAttack();
+            if (actionName == "Special") UltimateAttack();
+            if (actionName == "Charge") StartCharging();
         }
 
-        moveInput = context.ReadValue<float>();
+        if (ctx.canceled && actionName == "Charge") StopCharging();
     }
 
-    public virtual void OnJump(InputAction.CallbackContext context)
-    {
-        if (!controlsEnabled || CurrentState != PlayerState.Normal) return;
-
-        if (context.performed && isGrounded)
-        {
-            Jump();
-        }
-    }
-
-    public virtual void OnNormalAttack(InputAction.CallbackContext context)
-    {
-        if (!controlsEnabled || CurrentState != PlayerState.Normal) return;
-
-        if (context.performed)
-        {
-            NormalAttack();
-        }
-    }
-
-    public virtual void OnUltimateAttack(InputAction.CallbackContext context)
-    {
-        if (!controlsEnabled || CurrentState != PlayerState.Normal) return;
-
-        if (context.performed)
-        {
-            UltimateAttack();
-        }
-    }
-
-    public virtual void OnCharge(InputAction.CallbackContext context)
-    {
-        if (!controlsEnabled || CurrentState == PlayerState.Knockback) return;
-
-        if (context.performed)
-        {
-            StartChargingStamina();
-        }
-        else if (context.canceled)
-        {
-            StopChargingStamina();
-        }
-    }
-
-    // ---------------- LÓGICA LOCAL (antes RPCs) ----------------
+    // --- ACCIONES ---
 
     protected virtual void Jump()
     {
-        rb.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
-        if (animator) animator.SetTrigger("Jump");
+        // Solo saltar si estamos en el suelo
+        if (isGrounded)
+        {
+            // Resetear velocidad Y para salto consistente
+            rb.linearVelocity = new Vector3(rb.linearVelocity.x, 0, 0);
+            rb.AddForce(Vector3.up * 8f, ForceMode.Impulse); // Fuerza fija 15f (ajusta si necesitas más)
+            if (animator) animator.SetTrigger(AnimJump);
+        }
     }
 
     protected virtual void NormalAttack()
     {
-        if (Time.time < nextAttackTime)
-            return;
-
+        if (Time.time < nextAttackTime) return;
         nextAttackTime = Time.time + attackCooldown;
-        Debug.Log("NORMAL ATTACK (local)");
-        if (animator) animator.SetTrigger("NormalAttack");
 
-        StartCoroutine(HitCheckDelay());
+        if (animator) animator.SetTrigger(AnimAttack);
+        StartCoroutine(HitCheckRoutine());
     }
 
-    protected virtual void UltimateAttack()
-    {
-        Debug.Log("ULTI base (local, vacía)");
-        // La subclase (Ninja, etc.) puede overridear esto
-    }
+    protected virtual void UltimateAttack() { }
 
-    protected virtual void StartChargingStamina()
-    {
-        if (CurrentState != PlayerState.Normal) return;
+    private void StartCharging() { /* Lógica carga estamina */ }
+    private void StopCharging() { /* Lógica fin carga */ }
 
-        CurrentState = PlayerState.Charging;
-
-        if (chargingCoroutine != null)
-            StopCoroutine(chargingCoroutine);
-
-        chargingCoroutine = StartCoroutine(ChargeStaminaCoroutine());
-    }
-
-    protected virtual void StopChargingStamina()
-    {
-        if (CurrentState != PlayerState.Charging) return;
-
-        CurrentState = PlayerState.Normal;
-
-        if (chargingCoroutine != null)
-        {
-            StopCoroutine(chargingCoroutine);
-            chargingCoroutine = null;
-        }
-    }
-
-    private IEnumerator ChargeStaminaCoroutine()
-    {
-        Debug.Log("Empezando a cargar Estamina (local)...");
-        while (Estamina < estaminaMaxima)
-        {
-            Estamina += staminaChargeRate * Time.deltaTime;
-            Estamina = Mathf.Clamp(Estamina, 0, estaminaMaxima);
-            yield return null;
-        }
-
-        Debug.Log("Estamina llena.");
-        CurrentState = PlayerState.Normal;
-        chargingCoroutine = null;
-    }
-
-    // ---------------- UPDATE / MOVIMIENTO ----------------
+    // --- FÍSICAS MEJORADAS (FixedUpdate) ---
 
     protected virtual void FixedUpdate()
     {
-        if (rb == null) return;
-
+        // Chequeo de suelo
         isGrounded = Physics.CheckSphere(groundCheck.position, groundDistance, groundMask);
 
         if (CurrentState == PlayerState.Normal)
         {
             HandleMovementAndRotation();
+            ApplyBetterGravity(); // Caída rápida
+        }
+        else if (CurrentState == PlayerState.Knockback)
+        {
+            ApplyBetterGravity();
         }
 
-        float currentSpeed = Mathf.Abs(rb.linearVelocity.x);
+        // Animaciones
         if (animator)
         {
-            animator.SetFloat("Speed", currentSpeed);
-            animator.SetBool("IsGrounded", isGrounded);
+            animator.SetFloat(AnimSpeed, Mathf.Abs(rb.linearVelocity.x));
+            animator.SetBool(AnimGrounded, isGrounded);
         }
     }
 
     private void HandleMovementAndRotation()
     {
-        rb.linearVelocity = new Vector3(moveInput * velocidad, rb.linearVelocity.y, 0f);
+        // 1. MOVIMIENTO CON ACELERACIÓN / DESACELERACIÓN
+        float targetSpeed = moveInput * velocidad;
 
+        // Si nos movemos activamente usamos aceleración, si soltamos el stick usamos desaceleración
+        float accelRate = (Mathf.Abs(targetSpeed) > 0.01f) ? acceleration : deceleration;
+
+        // Si estamos en el aire, tenemos menos control (inercia)
+        if (!isGrounded) accelRate *= airControlMultiplier;
+
+        // MoveTowards suaviza el cambio de velocidad actual a la deseada
+        float newSpeedX = Mathf.MoveTowards(rb.linearVelocity.x, targetSpeed, accelRate * Time.fixedDeltaTime);
+
+        // Aplicamos la velocidad conservando la Y (gravedad/salto)
+        rb.linearVelocity = new Vector3(newSpeedX, rb.linearVelocity.y, 0f);
+
+        // 2. ROTACIÓN SUAVIZADA
         if (Mathf.Abs(moveInput) > 0.01f)
         {
             Quaternion targetRotation = (moveInput > 0)
                 ? Quaternion.Euler(0, 90, 0)
                 : Quaternion.Euler(0, -90, 0);
 
-            transform.rotation = Quaternion.Slerp(
-                transform.rotation,
-                targetRotation,
-                Time.fixedDeltaTime * rotationSpeed
-            );
+            // Giramos rápido pero no instantáneo (rotationSpeed * multiplicador)
+            float giroReal = rotationSpeed * 45f;
+            transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, giroReal * Time.fixedDeltaTime);
         }
     }
 
-    // ---------------- GOLPES / HITBOX ----------------
-
-    public void HitCheck()
+    private void ApplyBetterGravity()
     {
-        if (hitPoint == null) return;
+        // Si estamos cayendo (velocidad Y negativa), aplicamos gravedad extra
+        // Esto hace que el salto se sienta "pesado" al caer y no flotante.
+        if (rb.linearVelocity.y < 0)
+        {
+            // Physics.gravity.y suele ser -9.81. Multiplicamos para caer más rápido.
+            rb.linearVelocity += Vector3.up * Physics.gravity.y * (fallMultiplier - 1) * Time.fixedDeltaTime;
+        }
+        // Opcional: Salto corto (si sueltas botón). 
+        // Para implementarlo necesitarías saber si el botón de salto sigue presionado.
+    }
+
+    // --- INTERACCIÓN Y DAÑO ---
+
+    private IEnumerator HitCheckRoutine()
+    {
+        yield return new WaitForSeconds(attackDelay);
+        if (hitPoint == null) yield break;
 
         Collider[] hits = Physics.OverlapSphere(hitPoint.position, hitRadius, hitableLayers);
-
-        foreach (Collider hit in hits)
+        foreach (var hit in hits)
         {
-            if (hit.transform == this.transform) continue;
+            if (hit.gameObject == gameObject) continue;
 
-            // ¿Es otro jugador?
-            if (hit.TryGetComponent<CharacterBase>(out CharacterBase victimPlayer))
+            if (hit.TryGetComponent<CharacterBase>(out CharacterBase victim))
             {
-                Vector3 horizontalDir = (victimPlayer.transform.position - transform.position);
-                horizontalDir.y = 0;
-                horizontalDir.z = 0;
-                horizontalDir.Normalize();
+                Vector3 dir = (victim.transform.position - transform.position).normalized;
+                dir.y = 0.2f;
+                dir.z = 0; // Asegurar 2.5D
+                dir.Normalize();
 
-                // Lógica de corona local (opcional)
-                if (victimPlayer.IsKing && !this.IsKing && MinigameManager.Instance != null)
+                victim.ApplyKnockback(dir, punchForce);
+
+                if (MinigameManager.Instance != null && victim.IsKing)
                 {
                     MinigameManager.Instance.TransferCrown(this);
                 }
-
-                victimPlayer.ApplyKnockback(horizontalDir, punchForce);
             }
-            // ¿Es un objeto rígido?
-            else if (hit.TryGetComponent<Rigidbody>(out Rigidbody objectRb))
+            else if (hit.TryGetComponent<Rigidbody>(out Rigidbody objRb))
             {
-                Vector3 objectDirection =
-                    (hit.transform.position - transform.position).normalized +
-                    (Vector3.up * 0.3f);
-                objectRb.AddForce(objectDirection * punchForce, ForceMode.Impulse);
+                Vector3 dir = (hit.transform.position - transform.position).normalized + Vector3.up * 0.3f;
+                objRb.AddForce(dir * punchForce, ForceMode.Impulse);
             }
         }
     }
 
-    private IEnumerator HitCheckDelay()
+    public void ApplyKnockback(Vector3 dir, float force)
     {
-        yield return new WaitForSeconds(attackDelay);
-        HitCheck();
-    }
-
-    public void ApplyKnockback(Vector3 horizontalDirection, float horizontalForce)
-    {
-        if (CurrentState != PlayerState.Normal) return;
+        if (CurrentState != PlayerState.Normal) return; // Evitar stunlock infinito
 
         CurrentState = PlayerState.Knockback;
+        rb.linearVelocity = Vector3.zero; // Frenar en seco antes de aplicar fuerza
 
-        rb.linearVelocity = new Vector3(rb.linearVelocity.x, 0, rb.linearVelocity.z);
-
-        rb.AddForce(horizontalDirection * horizontalForce, ForceMode.Impulse);
+        rb.AddForce(dir * force, ForceMode.Impulse);
         rb.AddForce(Vector3.up * verticalKnockup, ForceMode.Impulse);
 
-        StartCoroutine(KnockbackCooldown());
+        StartCoroutine(RecoverFromKnockback());
     }
 
-    private IEnumerator KnockbackCooldown()
+    private IEnumerator RecoverFromKnockback()
     {
         yield return new WaitForSeconds(knockbackDuration);
         CurrentState = PlayerState.Normal;
     }
 
-    // Gizmo de hitRadius
+    // --- ESTADO DE REY (VISUAL) ---
+    public void SetKing(bool status)
+    {
+        IsKing = status;
+        UpdateCrownVisual(status);
+    }
+
+    private void UpdateCrownVisual(bool show)
+    {
+        if (crownVisual != null) crownVisual.SetActive(show);
+    }
+
+    public void Teleport(Vector3 pos)
+    {
+        rb.linearVelocity = Vector3.zero;
+        transform.position = pos;
+    }
+
+    // Gizmos para debug
     private void OnDrawGizmosSelected()
     {
-        if (hitPoint == null) return;
-        Gizmos.color = Color.red;
-        Gizmos.DrawWireSphere(hitPoint.position, hitRadius);
+        if (hitPoint != null)
+        {
+            Gizmos.color = Color.red;
+            Gizmos.DrawWireSphere(hitPoint.position, hitRadius);
+        }
+        if (groundCheck != null)
+        {
+            Gizmos.color = Color.green;
+            Gizmos.DrawWireSphere(groundCheck.position, groundDistance);
+        }
     }
 }

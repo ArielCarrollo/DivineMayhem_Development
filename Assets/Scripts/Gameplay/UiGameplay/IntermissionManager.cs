@@ -76,15 +76,15 @@ public class IntermissionUI : MonoBehaviour
         if (statusText) statusText.text = "Esperando a los demás...";
         if (buttonText) buttonText.text = "Enviando...";
 
-        // Minijuego de corona
-        if (MinigameManager.Instance != null)
-        {
-            MinigameManager.Instance.ClientIsReady();
-        }
-        // Supervivencia
-        else if (SurvivalGameManager.Instance != null)
-        {
-            SurvivalGameManager.Instance.ClientIsReady();
-        }
+        //// Minijuego de corona
+        //if (MinigameManager.Instance != null)
+        //{
+        //    MinigameManager.Instance.ClientIsReady();
+        //}
+        //// Supervivencia
+        //else if (SurvivalGameManager.Instance != null)
+        //{
+        //    SurvivalGameManager.Instance.ClientIsReady();
+        //}
     }
 }

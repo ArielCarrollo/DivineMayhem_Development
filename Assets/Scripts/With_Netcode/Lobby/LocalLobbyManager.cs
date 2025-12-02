@@ -1,14 +1,28 @@
 using System.Collections.Generic;
 using System.Collections;
 using UnityEngine;
+using UnityEngine.UI; // Necesario para Button
 using TMPro;
 
 public class LocalLobbyManager : MonoBehaviour
 {
-    [Header("UI Referencias")]
+    [Header("UI Referencias Principales")]
     [SerializeField] private RectTransform readyPanelParent;
     [SerializeField] private GameObject readyPanelPrefab;
     [SerializeField] private TextMeshProUGUI statusText;
+
+    [Header("Configuración de Partida (Solo P1)")]
+    [SerializeField] private TextMeshProUGUI roundsText;
+    [SerializeField] private TextMeshProUGUI gameModeText;
+    [SerializeField] private Button btnRoundUp;
+    [SerializeField] private Button btnRoundDown;
+    [SerializeField] private Button btnGameNext;
+    [SerializeField] private Button btnGamePrev;
+
+    // Variables de configuración interna
+    private int selectedRounds = 5;
+    private int selectedGameIndex = 0; // 0 = Aleatorio, 1...N = Juegos específicos
+    private List<string> availableGames;
 
     private Dictionary<LocalPlayerContext, LocalReadyPanel> activePanels = new Dictionary<LocalPlayerContext, LocalReadyPanel>();
     private List<LocalPlayerData> finalPlayersList = new List<LocalPlayerData>();
@@ -18,6 +32,61 @@ public class LocalLobbyManager : MonoBehaviour
         if (activePanels == null) activePanels = new Dictionary<LocalPlayerContext, LocalReadyPanel>();
     }
 
+    private void Start()
+    {
+        // Inicializar opciones
+        if (GameManager.Instance != null)
+        {
+            availableGames = GameManager.Instance.MinigameScenes;
+        }
+        else
+        {
+            availableGames = new List<string>(); // Fallback vacio
+        }
+
+        UpdateConfigUI();
+
+        // Asignar listeners a los botones
+        btnRoundUp.onClick.AddListener(() => ChangeRounds(1));
+        btnRoundDown.onClick.AddListener(() => ChangeRounds(-1));
+        btnGameNext.onClick.AddListener(() => ChangeGameMode(1));
+        btnGamePrev.onClick.AddListener(() => ChangeGameMode(-1));
+    }
+    private void ChangeRounds(int delta)
+    {
+        selectedRounds = Mathf.Clamp(selectedRounds + delta, 1, 20); // Mínimo 1, Máximo 20 rondas
+        UpdateConfigUI();
+    }
+
+    private void ChangeGameMode(int delta)
+    {
+        // Rango: 0 (Aleatorio) hasta N (Cantidad de juegos)
+        int maxIndex = availableGames.Count;
+        selectedGameIndex = (selectedGameIndex + delta);
+
+        // Loop ciclico
+        if (selectedGameIndex < 0) selectedGameIndex = maxIndex;
+        else if (selectedGameIndex > maxIndex) selectedGameIndex = 0;
+
+        UpdateConfigUI();
+    }
+
+    private void UpdateConfigUI()
+    {
+        roundsText.text = $"{selectedRounds}";
+
+        if (selectedGameIndex == 0)
+        {
+            gameModeText.text = "ALEATORIO";
+        }
+        else
+        {
+            // Restamos 1 porque el 0 es "Aleatorio"
+            // Mostramos el nombre de la escena limpio
+            string sceneName = availableGames[selectedGameIndex - 1];
+            gameModeText.text = sceneName;
+        }
+    }
     private void OnEnable()
     {
         // 1. LIMPIEZA DE FANTASMAS: Borrar cualquier cosa que haya en la UI antes de empezar
@@ -60,38 +129,116 @@ public class LocalLobbyManager : MonoBehaviour
 
     private void HandlePlayerContextJoined(LocalPlayerContext context)
     {
-        // --- NUEVA PROTECCIÓN ---
-        if (context == null) return;
+        if (context == null || context.Data == null) return;
+        if (activePanels.ContainsKey(context)) return;
 
-        // Si el contexto no tiene datos (es un fantasma o no se ha inicializado), lo ignoramos
-        if (context.Data == null || string.IsNullOrEmpty(context.Data.Username))
-        {
-            // Opcional: Intentar forzar inicialización si es necesario, 
-            // pero mejor ignorarlo si es un objeto basura.
-            return;
-        }
-        if (activePanels.ContainsKey(context)) return; // Evitar duplicados reales
-
-        // Crear Panel
         GameObject panelObj = Instantiate(readyPanelPrefab, readyPanelParent);
         LocalReadyPanel panelScript = panelObj.GetComponent<LocalReadyPanel>();
 
         if (panelScript != null)
         {
-            // Determinar color para coherencia (El mismo que el cursor)
             Color pColor = GetColorForIndex(context.Input.playerIndex);
-
-            // Inicializar pasando el color
             panelScript.Initialize(this, context.Data, context.Input, pColor);
 
             activePanels.Add(context, panelScript);
             UpdateLobbyStatus();
+
             var pEventSystem = context.GetComponent<UnityEngine.EventSystems.EventSystem>();
+
             if (pEventSystem != null && panelScript.ReadyButton != null)
             {
                 pEventSystem.SetSelectedGameObject(panelScript.ReadyButton.gameObject);
+
+                if (context.Input.playerIndex == 0)
+                {
+                    // === AQUÍ ESTÁ LA CORRECCIÓN ===
+                    // Configuramos TODA la red de navegación para el P1
+                    SetupP1Navigation(panelScript.ReadyButton);
+                }
+                else
+                {
+                    // P2, P3, P4 bloqueados en su botón
+                    Navigation nav = new Navigation();
+                    nav.mode = Navigation.Mode.None;
+                    panelScript.ReadyButton.navigation = nav;
+                }
             }
         }
+    }
+
+    // --- NUEVO MÉTODO PARA COSER LOS BOTONES ---
+    private void SetupP1Navigation(Button p1ReadyBtn)
+    {
+        // 1. Conectar los botones de configuración entre ellos (Horizontalmente)
+        // Asumimos orden visual: [Round-] [Round+] [Game-] [Game+]
+
+        // Helper para conectar A <-> B
+        void LinkHorizontal(Button left, Button right)
+        {
+            // Configurar Izquierda
+            Navigation l = left.navigation;
+            l.mode = Navigation.Mode.Explicit;
+            l.selectOnRight = right; // Derecha va al otro
+
+            // Si quieres que sea cíclico o volver al P1 al bajar, mantenemos el selectOnDown previo
+            // PERO CUIDADO: Al leer .navigation, leemos lo que ya tenía. 
+            // Si Unity lo resetea, hay que reasignar todo.
+            // Para asegurar, reescribimos todo aquí.
+            left.navigation = l;
+
+            // Configurar Derecha
+            Navigation r = right.navigation;
+            r.mode = Navigation.Mode.Explicit;
+            r.selectOnLeft = left;
+            right.navigation = r;
+        }
+
+        // Cadena Horizontal:
+        LinkHorizontal(btnRoundDown, btnRoundUp);
+        LinkHorizontal(btnRoundUp, btnGamePrev);
+        LinkHorizontal(btnGamePrev, btnGameNext);
+
+        // 2. Conectar TODOS los botones de arriba hacia ABAJO (al P1 Ready)
+        void LinkDownToPlayer(Button target)
+        {
+            Navigation n = target.navigation;
+            n.selectOnDown = p1ReadyBtn; // Abajo -> P1
+            target.navigation = n;
+        }
+
+        LinkDownToPlayer(btnRoundDown);
+        LinkDownToPlayer(btnRoundUp);
+        LinkDownToPlayer(btnGamePrev);
+        LinkDownToPlayer(btnGameNext);
+
+        // 3. Conectar el botón del P1 hacia ARRIBA (a los de configuración)
+        Navigation p1Nav = p1ReadyBtn.navigation;
+        p1Nav.mode = Navigation.Mode.Explicit;
+
+        // Subir lleva al primero (Round Down)
+        p1Nav.selectOnUp = btnRoundDown;
+        // Opcional: Si quieres que también vaya con la derecha al RoundDown si está muy a la derecha
+        // p1Nav.selectOnRight = btnRoundDown; 
+
+        p1ReadyBtn.navigation = p1Nav;
+    }
+
+    private void LinkConfigButtonsBackToP1(Button p1ReadyBtn)
+    {
+        // Configuramos la navegación de los botones de config para que al bajar vuelvan al P1
+        void SetNavDown(Button target, Button destination)
+        {
+            Navigation n = target.navigation;
+            n.mode = Navigation.Mode.Explicit;
+            n.selectOnDown = destination;
+            // Configura Left/Right entre ellos si quieres
+            target.navigation = n;
+        }
+
+        SetNavDown(btnRoundUp, p1ReadyBtn);
+        SetNavDown(btnRoundDown, p1ReadyBtn);
+        SetNavDown(btnGameNext, p1ReadyBtn);
+        SetNavDown(btnGamePrev, p1ReadyBtn);
     }
 
     private void HandlePlayerContextLeft(LocalPlayerContext context)
@@ -161,17 +308,50 @@ public class LocalLobbyManager : MonoBehaviour
 
     private IEnumerator StartGameRoutine()
     {
-        statusText.text = "¡Iniciando partida en 3...";
-        yield return new WaitForSeconds(1f);
-        statusText.text = "¡Iniciando partida en 2...";
-        yield return new WaitForSeconds(1f);
-        statusText.text = "¡Iniciando partida en 1...";
+        Debug.Log("[Lobby] Iniciando rutina de comienzo de partida...");
+
+        // 1. Validaciones
+        if (GameManager.Instance == null)
+        {
+            Debug.LogError("[Lobby] ERROR: GameManager.Instance es NULL. No se puede iniciar.");
+            statusText.text = "Error: Falta GameManager";
+            yield break;
+        }
+
+        if (finalPlayersList.Count == 0)
+        {
+            Debug.LogWarning("[Lobby] Advertencia: La lista final de jugadores está vacía.");
+        }
+
+        statusText.text = "Configurando partida...";
+        Debug.Log("[Lobby] Enviando configuración al GameManager...");
+
+        // 2. Enviar datos
+        GameManager.Instance.SetPlayers(finalPlayersList);
+
+        // --- Try-Catch para evitar que el lobby se congele si la configuración falla ---
+        bool configSuccess = true;
+        try
+        {
+            GameManager.Instance.ConfigureMatch(selectedRounds, selectedGameIndex);
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[Lobby] Excepción al configurar partida: {e.Message}\n{e.StackTrace}");
+            statusText.text = "Error en Configuración";
+            configSuccess = false;
+        }
+
+        if (!configSuccess) yield break;
+
         yield return new WaitForSeconds(1f);
 
-        if (GameManager.Instance != null)
-        {
-            GameManager.Instance.SetPlayers(finalPlayersList);
-            GameManager.Instance.StartLocalGame();
-        }
+        statusText.text = "¡Iniciando!";
+        Debug.Log("[Lobby] ¡Iniciando carga de escena!");
+
+        yield return new WaitForSeconds(0.5f);
+
+        // 3. Iniciar
+        GameManager.Instance.StartGameSequence();
     }
 }

@@ -1,28 +1,25 @@
 using UnityEngine;
-using UnityEngine.InputSystem;
+// No necesitamos "using UnityEngine.InputSystem;" aquí porque CharacterBase ya maneja el input.
 
 public class Ninja : CharacterBase
 {
     [Header("Stats Específicos de Ninja")]
     [SerializeField] private int shurikenCount = 10;
-    [SerializeField] private float velocidadNinja = 8f;
+    [SerializeField] private float velocidadNinja = 9f; // Un poco más rápido
 
     protected override void Awake()
     {
         base.Awake();
+        // Sobrescribimos la velocidad base
         velocidad = velocidadNinja;
     }
 
-    public void OnSpecialAttack(InputAction.CallbackContext context)
+    // Ya no usamos "OnSpecialAttack(InputAction...)", usamos el override de CharacterBase
+    protected override void UltimateAttack()
     {
-        if (!context.performed) return;
-        if (!enabled) return;
+        // Esta función se llama sola cuando aprietas el botón "Special" (tu antigua Ulti)
+        // gracias al script CharacterBase.
 
-        SpecialAttack();
-    }
-
-    private void SpecialAttack()
-    {
         if (shurikenCount <= 0)
         {
             Debug.Log("Ninja: No quedan shurikens.");
@@ -30,16 +27,10 @@ public class Ninja : CharacterBase
         }
 
         shurikenCount--;
-        Debug.Log("Ninja lanza Shuriken! Quedan: " + shurikenCount);
+        Debug.Log($"Ninja lanza Shuriken! Quedan: {shurikenCount} (Ejecutando lógica local)");
 
-        // Aquí va tu lógica de instanciar el shuriken localmente
-        // GameObject shuriken = Instantiate(shurikenPrefab, ...);
-        // shuriken.GetComponent<Rigidbody>().AddForce(...);
-    }
-
-    protected override void UltimateAttack()
-    {
-        Debug.Log("ULTI DE NINJA: 'Kage Bunshin no Jutsu' (local)");
-        // Aquí iría la lógica de la ulti: clones, invisibilidad, etc.
+        // Lógica de instanciar Shuriken
+        // GameObject shuriken = Instantiate(shurikenPrefab, hitPoint.position, transform.rotation);
+        // ...
     }
 }
