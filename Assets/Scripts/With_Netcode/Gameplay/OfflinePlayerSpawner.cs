@@ -69,7 +69,7 @@ public class OfflinePlayerSpawner : MonoBehaviour
         var charBase = pInput.GetComponent<CharacterBase>();
         if (charBase != null)
         {
-            // Forzamos el índice que viene del GameManager (0, 1, 2...)
+            // IMPORTANTE: Esta línea arregla el P2/P1
             charBase.SetPlayerInfo(data.PlayerIndex, data.Username);
         }
         // D. APLICAR DATOS VISUALES (Skin)

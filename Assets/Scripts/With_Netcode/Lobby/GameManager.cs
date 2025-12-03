@@ -12,7 +12,8 @@ public class LocalPlayerData
     public int Level;
     public int CurrentXP;
     public bool IsReady;
-    public int MatchScore;
+    public int MatchScore;          // Puntos Totales actuales
+    public int ScoreAtStartOfRound; // Puntos antes de jugar la ronda (Para animación)
     public int BodyIndex;
     public int EyesIndex;
     public int GlovesIndex;
@@ -23,7 +24,6 @@ public class GameManager : MonoBehaviour
     public static GameManager Instance { get; private set; }
 
     [Header("Configuración de Partida")]
-    [Tooltip("Lista EXACTA de nombres de escenas de tus minijuegos. ¡DEBEN ESTAR EN BUILD SETTINGS!")]
     public List<string> MinigameScenes;
 
     [Header("Estado Actual")]
@@ -34,6 +34,9 @@ public class GameManager : MonoBehaviour
     public List<LocalPlayerData> LocalPlayers { get; private set; } = new List<LocalPlayerData>();
     private CinemachineImpulseSource impulseSource;
 
+    // Propiedad pública para saber si quedan juegos
+    public bool HasNextMinigame => minigameQueue.Count > 0;
+
     private void Awake()
     {
         if (Instance == null)
@@ -41,68 +44,50 @@ public class GameManager : MonoBehaviour
             Instance = this;
             DontDestroyOnLoad(gameObject);
         }
-        else
-        {
-            Destroy(gameObject);
-        }
+        else Destroy(gameObject);
+        
         impulseSource = GetComponent<CinemachineImpulseSource>();
     }
 
     public void SetPlayers(List<LocalPlayerData> players)
     {
         LocalPlayers = new List<LocalPlayerData>(players);
-        foreach (var p in LocalPlayers) p.MatchScore = 0;
-        Debug.Log($"[GameManager] Jugadores establecidos: {LocalPlayers.Count}");
+        foreach (var p in LocalPlayers) 
+        {
+            p.MatchScore = 0;
+            p.ScoreAtStartOfRound = 0;
+        }
     }
 
     public void ConfigureMatch(int rounds, int startMinigameIndex)
     {
-        Debug.Log($"[GameManager] Configurando partida... Rondas: {rounds}, StartIndex: {startMinigameIndex}");
-
-        // 1. VALIDACIÓN CRÍTICA
-        if (MinigameScenes == null || MinigameScenes.Count == 0)
-        {
-            Debug.LogError("[GameManager] ¡ERROR FATAL! La lista 'MinigameScenes' está vacía en el Inspector. No se puede iniciar.");
-            return;
-        }
+        if (MinigameScenes == null || MinigameScenes.Count == 0) return;
 
         TotalRounds = rounds;
         CurrentRound = 0;
         minigameQueue.Clear();
 
         List<string> gamesPool = new List<string>(MinigameScenes);
+        System.Random rng = new System.Random();
 
-        // Si se eligió un juego específico
+        // Si se fuerza el primero
         if (startMinigameIndex > 0)
         {
             int realIndex = Mathf.Clamp(startMinigameIndex - 1, 0, MinigameScenes.Count - 1);
-            string firstGame = MinigameScenes[realIndex];
-            minigameQueue.Enqueue(firstGame);
-            Debug.Log($"[GameManager] Primer juego forzado: {firstGame}");
+            minigameQueue.Enqueue(MinigameScenes[realIndex]);
         }
 
-        System.Random rng = new System.Random();
-
-        // Rellenar cola
         while (minigameQueue.Count < TotalRounds)
         {
-            // Recargar pool si se vacía
-            if (gamesPool.Count == 0)
-            {
-                gamesPool = new List<string>(MinigameScenes);
-            }
-
+            if (gamesPool.Count == 0) gamesPool = new List<string>(MinigameScenes);
             int rnd = rng.Next(gamesPool.Count);
             minigameQueue.Enqueue(gamesPool[rnd]);
             gamesPool.RemoveAt(rnd);
         }
-
-        Debug.Log($"[GameManager] Cola de juegos generada ({minigameQueue.Count} items): {string.Join(", ", minigameQueue)}");
     }
 
     public void StartGameSequence()
     {
-        Debug.Log("[GameManager] Iniciando secuencia de juego...");
         LoadNextMinigame();
     }
 
@@ -110,43 +95,41 @@ public class GameManager : MonoBehaviour
     {
         if (minigameQueue.Count > 0)
         {
+            // 1. Antes de cargar, guardamos el puntaje actual como "Inicio de Ronda"
+            //    para la próxima vez que vayamos a Intermission.
+            foreach(var p in LocalPlayers)
+            {
+                p.ScoreAtStartOfRound = p.MatchScore;
+            }
+
             CurrentRound++;
             string nextScene = minigameQueue.Dequeue();
-            Debug.Log($"[GameManager] Cargando siguiente minijuego ({CurrentRound}/{TotalRounds}): {nextScene}");
-
-            // --- USO DEL SCENE TRANSITION MANAGER ---
+            
             if (SceneTransitionManager.Instance != null)
-            {
                 SceneTransitionManager.Instance.LoadSceneWithFade(nextScene);
-            }
             else
-            {
-                Debug.LogWarning("[GameManager] SceneTransitionManager no encontrado, cargando directo.");
                 SceneManager.LoadScene(nextScene);
-            }
-        }
-        else
-        {
-            Debug.Log("[GameManager] Partida Terminada. Volviendo al menú.");
-            if (SceneTransitionManager.Instance != null)
-                SceneTransitionManager.Instance.LoadSceneWithFade("IntroLogo"); // O MainMenu
-            else
-                SceneManager.LoadScene("IntroLogo");
         }
     }
 
-    // ... (El resto de métodos de Score y XP se mantienen igual) ...
+    // Llamado cuando termina un minijuego
     public void EndMinigame(int winnerPlayerIndex, int pointsAwarded)
     {
+        // Dar puntos al ganador
         var winner = LocalPlayers.Find(p => p.PlayerIndex == winnerPlayerIndex);
         if (winner != null)
         {
             winner.MatchScore += pointsAwarded;
             AddXp(winnerPlayerIndex, 25);
         }
+        // Dar XP a todos
         foreach (var p in LocalPlayers) AddXp(p.PlayerIndex, 10);
-
-        LoadNextMinigame();
+        
+        // --- CAMBIO: Ir a Intermission en lugar del siguiente juego ---
+        if (SceneTransitionManager.Instance != null)
+            SceneTransitionManager.Instance.LoadSceneWithFade("Intermission");
+        else
+            SceneManager.LoadScene("Intermission");
     }
 
     public void AddMatchScore(int playerIndex, int amount)

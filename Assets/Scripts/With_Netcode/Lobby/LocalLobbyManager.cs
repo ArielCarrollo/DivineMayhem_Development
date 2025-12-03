@@ -359,11 +359,15 @@ public class LocalLobbyManager : MonoBehaviour
         yield return new WaitForSeconds(1f);
 
         statusText.text = "¡Iniciando!";
-        Debug.Log("[Lobby] ¡Iniciando carga de escena!");
-
         yield return new WaitForSeconds(0.5f);
 
-        // 3. Iniciar
-        GameManager.Instance.StartGameSequence();
+        // --- LIMPIEZA: Destruir los objetos del Lobby para que no viajen ---
+        var lobbyPlayers = FindObjectsByType<LocalPlayerContext>(FindObjectsSortMode.None);
+        foreach (var p in lobbyPlayers)
+        {
+            Destroy(p.gameObject);
+        }
+
+        if (GameManager.Instance != null) GameManager.Instance.StartGameSequence();
     }
 }

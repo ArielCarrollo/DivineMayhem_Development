@@ -1,89 +1,118 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using System.Collections;
 using System.Collections.Generic;
-using System.Linq; // Necesario para ordenar listas
+using System.Linq;
 
 public class IntermissionUI : MonoBehaviour
 {
-    [Header("Referencias UI")]
-    [SerializeField] private TextMeshProUGUI rankingText;
-    [SerializeField] private Button continueButton;
-    [SerializeField] private TextMeshProUGUI statusText;
-    [SerializeField] private TextMeshProUGUI roundsText;
+    [Header("Referencias Generales")]
+    [SerializeField] private TextMeshProUGUI roundTitleText;
+    [SerializeField] private Transform rowsContainer;
+    [SerializeField] private GameObject rowPrefab;
 
-    // Solo el P1 debería poder dar a continuar, o hacerlo automático
-    private bool isReady = false;
+    [Header("Pantalla Ganador Final")]
+    [SerializeField] private GameObject winnerPanel;
+    [SerializeField] private TextMeshProUGUI winnerNameText;
+    [SerializeField] private Image winnerAvatarImage;
 
     private void Start()
     {
-        // 1. Mostrar Rondas Restantes
-        if (GameManager.Instance != null && roundsText != null)
-        {
-            roundsText.text = $"Ronda {GameManager.Instance.CurrentRound} / {GameManager.Instance.TotalRounds}";
-        }
-
-        // 2. Mostrar Ranking
-        UpdateRankingDisplay();
-
-        // 3. Configurar Botón (Solo P1 o Automático)
-        if (continueButton != null)
-        {
-            continueButton.onClick.AddListener(OnContinueClicked);
-            // Opcional: Seleccionarlo automáticamente para que el P1 pueda pulsarlo con mando
-            UnityEngine.EventSystems.EventSystem.current.SetSelectedGameObject(continueButton.gameObject);
-        }
-
-        // Opcional: Auto-continuar después de 5 segundos
-        // StartCoroutine(AutoContinueRoutine());
+        winnerPanel.SetActive(false);
+        StartCoroutine(IntermissionSequence());
     }
 
-    private void UpdateRankingDisplay()
+    private IEnumerator IntermissionSequence()
     {
-        if (rankingText == null || GameManager.Instance == null) return;
+        if (GameManager.Instance == null) yield break;
 
-        // Obtenemos la lista de jugadores y la ordenamos por puntuación (Descendente)
+        // 1. Mostrar Ronda
+        roundTitleText.text = $"RESULTADOS RONDA {GameManager.Instance.CurrentRound}";
+
+        // 2. Ordenar Jugadores
         List<LocalPlayerData> sortedPlayers = GameManager.Instance.LocalPlayers
             .OrderByDescending(p => p.MatchScore)
             .ToList();
 
-        string ranking = "<size=120%>RANKING GLOBAL</size>\n\n";
+        // Lista para guardar las referencias a los scripts de fila
+        List<IntermissionPlayerRow> rowsScripts = new List<IntermissionPlayerRow>();
 
-        for (int i = 0; i < sortedPlayers.Count; i++)
+        // 3. Crear Filas y Preparar Animación
+        float delay = 0.2f;
+
+        foreach (var p in sortedPlayers)
         {
-            var p = sortedPlayers[i];
-            string colorHex = GetColorHex(p.PlayerIndex);
+            GameObject go = Instantiate(rowPrefab, rowsContainer);
+            var script = go.GetComponent<IntermissionPlayerRow>();
 
-            // Ejemplo: "1. [P1] Jugador 1: 150 pts"
-            ranking += $"{i + 1}. <color={colorHex}>{p.Username}</color>: <b>{p.MatchScore} pts</b>\n";
+            // Calculamos cuánto ganó en esta ronda
+            int pointsEarned = p.MatchScore - p.ScoreAtStartOfRound;
+
+            // Calculamos el puntaje inicial para la animación (Total - Ganado)
+            int startScore = p.MatchScore - pointsEarned;
+
+            // Setup inicial (muestra el puntaje antiguo)
+            script.Setup(p.Username, p.MatchScore, pointsEarned, GetColor(p.PlayerIndex));
+
+            // --- ANIMACIONES DOTWEEN ---
+            // 1. Entrada (Aparecer)
+            script.AnimateEntrance(delay);
+
+            // 2. Sumar Puntos (Rodar números)
+            // Se ejecuta medio segundo después de aparecer
+            script.AnimateScore(startScore, p.MatchScore, delay + 0.5f);
+
+            rowsScripts.Add(script);
+            delay += 0.2f; // Efecto cascada para el siguiente
         }
 
-        rankingText.text = ranking;
-    }
+        // 4. Esperar a que terminen las animaciones
+        // (Delay total + un extra para ver el resultado final)
+        yield return new WaitForSeconds(delay + 2.5f);
 
-    private void OnContinueClicked()
-    {
-        if (isReady) return;
-        isReady = true;
-
-        if (statusText) statusText.text = "Cargando siguiente juego...";
-
-        // Llamamos al GameManager para que saque el siguiente juego de la cola
-        if (GameManager.Instance != null)
+        // 5. DECISIÓN: ¿Siguiente Juego o Final?
+        if (GameManager.Instance.HasNextMinigame)
         {
+            // --- SIGUIENTE RONDA ---
             GameManager.Instance.LoadNextMinigame();
         }
+        else
+        {
+            // --- FINAL DE LA PARTIDA ---
+            ShowWinner(sortedPlayers[0]); // El primero de la lista ordenada es el ganador
+        }
     }
 
-    private string GetColorHex(int index)
+    private void ShowWinner(LocalPlayerData winner)
+    {
+        winnerPanel.SetActive(true);
+        winnerNameText.text = $"¡{winner.Username} GANA!";
+        winnerNameText.color = GetColor(winner.PlayerIndex);
+
+        StartCoroutine(ReturnToMenuRoutine());
+    }
+
+    private IEnumerator ReturnToMenuRoutine()
+    {
+        yield return new WaitForSeconds(5f);
+
+        // Volver al Login
+        if (SceneTransitionManager.Instance != null)
+            SceneTransitionManager.Instance.LoadSceneWithFade("Login"); // Asegúrate de que la escena se llame así
+        else
+            UnityEngine.SceneManagement.SceneManager.LoadScene("Login");
+    }
+
+    private Color GetColor(int index)
     {
         switch (index)
         {
-            case 0: return "#0000FF"; // Azul
-            case 1: return "#FF0000"; // Rojo
-            case 2: return "#00FF00"; // Verde
-            case 3: return "#FFFF00"; // Amarillo
-            default: return "#FFFFFF";
+            case 0: return Color.blue;
+            case 1: return Color.red;
+            case 2: return Color.green;
+            case 3: return Color.yellow;
+            default: return Color.white;
         }
     }
 }

@@ -58,7 +58,28 @@ public class PlayerBottomHUD : MonoBehaviour
         // 1. Barra de Inactividad (Funciona como Vida: se vacía si te quedas quieto)
         if (inactivitySlider)
         {
-            inactivitySlider.value = target.InactivityTimer;
+            // NO HACER ESTO EN UPDATE: inactivitySlider.DOValue(...)
+            // DOTween en Update crea millones de tweens.
+            // Mejor usar Lerp manual o un tween guardado.
+
+            // Opción Lerp para suavidad simple:
+            inactivitySlider.value = Mathf.Lerp(inactivitySlider.value, target.InactivityTimer, Time.deltaTime * 5f);
+
+            // Color Dinámico: Verde -> Amarillo -> Rojo parpadeante
+            if (inactivitySlider.fillRect != null) // La imagen de relleno
+            {
+                Image fill = inactivitySlider.fillRect.GetComponent<Image>();
+                float pct = target.InactivityTimer / target.MaxInactivityTime;
+
+                if (pct > 0.5f) fill.color = Color.green;
+                else if (pct > 0.2f) fill.color = Color.yellow;
+                else
+                {
+                    // Rojo parpadeante
+                    float blink = Mathf.PingPong(Time.time * 10f, 1f);
+                    fill.color = Color.Lerp(Color.red, Color.black, blink);
+                }
+            }
         }
 
         // 2. Barra de Cooldown (Funciona como Tiempo de Espera)

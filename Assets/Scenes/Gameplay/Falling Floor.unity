@@ -1481,7 +1481,7 @@ GameObject:
   - component: {fileID: 213103423}
   - component: {fileID: 213103422}
   - component: {fileID: 213103421}
-  m_Layer: 7
+  m_Layer: 3
   m_Name: Bloque (18)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -4721,7 +4721,7 @@ GameObject:
   - component: {fileID: 599540008}
   - component: {fileID: 599540007}
   - component: {fileID: 599540006}
-  m_Layer: 7
+  m_Layer: 3
   m_Name: Bloque (22)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -5126,6 +5126,7 @@ GameObject:
   - component: {fileID: 631189748}
   - component: {fileID: 631189750}
   - component: {fileID: 631189749}
+  - component: {fileID: 631189751}
   m_Layer: 0
   m_Name: Bloque (20)
   m_TagString: Untagged
@@ -5142,7 +5143,7 @@ Transform:
   m_GameObject: {fileID: 631189747}
   serializedVersion: 2
   m_LocalRotation: {x: -0.7071068, y: -0, z: -0, w: 0.7071068}
-  m_LocalPosition: {x: -3.3121, y: 1.6958, z: 0.41910014}
+  m_LocalPosition: {x: -2.96, y: 1.7, z: -3.22}
   m_LocalScale: {x: 1.9113191, y: 1, z: 14.817992}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -5201,6 +5202,27 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 631189747}
   m_Mesh: {fileID: 7087115522847617999, guid: f5398740d5a287a4ba35d276aca56a91, type: 3}
+--- !u!65 &631189751
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 631189747}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 0.8381999, y: 9.982319, z: 0.83820015}
+  m_Center: {x: 0, y: -4.5720596, z: 0.41910008}
 --- !u!1 &641047388
 GameObject:
   m_ObjectHideFlags: 0
@@ -5215,7 +5237,7 @@ GameObject:
   - component: {fileID: 641047394}
   - component: {fileID: 641047393}
   - component: {fileID: 641047392}
-  m_Layer: 7
+  m_Layer: 3
   m_Name: Bloque (24)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -5967,7 +5989,7 @@ GameObject:
   - component: {fileID: 688479824}
   - component: {fileID: 688479823}
   - component: {fileID: 688479822}
-  m_Layer: 7
+  m_Layer: 3
   m_Name: Bloque (23)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -6257,7 +6279,7 @@ GameObject:
   - component: {fileID: 719994582}
   - component: {fileID: 719994581}
   - component: {fileID: 719994580}
-  m_Layer: 7
+  m_Layer: 3
   m_Name: Bloque (11)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -6493,7 +6515,7 @@ GameObject:
   - component: {fileID: 738943406}
   - component: {fileID: 738943405}
   - component: {fileID: 738943404}
-  m_Layer: 7
+  m_Layer: 3
   m_Name: Bloque (16)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -7294,7 +7316,7 @@ GameObject:
   - component: {fileID: 832997937}
   - component: {fileID: 832997936}
   - component: {fileID: 832997935}
-  m_Layer: 7
+  m_Layer: 3
   m_Name: Bloque (6)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -7444,7 +7466,7 @@ GameObject:
   - component: {fileID: 835220013}
   - component: {fileID: 835220012}
   - component: {fileID: 835220011}
-  m_Layer: 7
+  m_Layer: 3
   m_Name: Bloque (19)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -7883,7 +7905,7 @@ GameObject:
   - component: {fileID: 849127552}
   - component: {fileID: 849127551}
   - component: {fileID: 849127550}
-  m_Layer: 7
+  m_Layer: 3
   m_Name: Bloque (1)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -8463,7 +8485,7 @@ GameObject:
   - component: {fileID: 912161096}
   - component: {fileID: 912161095}
   - component: {fileID: 912161094}
-  m_Layer: 7
+  m_Layer: 3
   m_Name: Bloque (03)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -8807,7 +8829,7 @@ GameObject:
   - component: {fileID: 1002637690}
   - component: {fileID: 1002637689}
   - component: {fileID: 1002637688}
-  m_Layer: 7
+  m_Layer: 3
   m_Name: Bloque (5)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -9129,7 +9151,7 @@ GameObject:
   - component: {fileID: 1026570066}
   - component: {fileID: 1026570065}
   - component: {fileID: 1026570064}
-  m_Layer: 7
+  m_Layer: 3
   m_Name: Bloque (17)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -9320,10 +9342,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b248a97a86630b3429bcd1ef7edeb6ae, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  rankingText: {fileID: 319590428}
-  readyButton: {fileID: 143444717}
-  statusText: {fileID: 304240185}
-  buttonText: {fileID: 125359986}
+  roundTitleText: {fileID: 0}
+  rowsContainer: {fileID: 0}
+  rowPrefab: {fileID: 0}
+  winnerPanel: {fileID: 0}
+  winnerNameText: {fileID: 0}
+  winnerAvatarImage: {fileID: 0}
 --- !u!114 &1033208668
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -9782,7 +9806,7 @@ GameObject:
   - component: {fileID: 1146040620}
   - component: {fileID: 1146040619}
   - component: {fileID: 1146040618}
-  m_Layer: 7
+  m_Layer: 3
   m_Name: Bloque (20)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -10018,7 +10042,7 @@ GameObject:
   - component: {fileID: 1171809540}
   - component: {fileID: 1171809539}
   - component: {fileID: 1171809538}
-  m_Layer: 7
+  m_Layer: 3
   m_Name: Bloque (21)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -10973,7 +10997,7 @@ GameObject:
   - component: {fileID: 1231183753}
   - component: {fileID: 1231183752}
   - component: {fileID: 1231183754}
-  m_Layer: 7
+  m_Layer: 3
   m_Name: Bloque (14)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -11779,7 +11803,7 @@ GameObject:
   - component: {fileID: 1327181256}
   - component: {fileID: 1327181255}
   - component: {fileID: 1327181254}
-  m_Layer: 7
+  m_Layer: 3
   m_Name: Bloque (15)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -12053,7 +12077,7 @@ GameObject:
   - component: {fileID: 1366178617}
   - component: {fileID: 1366178616}
   - component: {fileID: 1366178615}
-  m_Layer: 7
+  m_Layer: 3
   m_Name: Bloque (4)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -12198,7 +12222,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1370798617}
-  m_Layer: 7
+  m_Layer: 3
   m_Name: Rectangulo horizontal
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -12900,7 +12924,7 @@ GameObject:
   - component: {fileID: 1419514975}
   - component: {fileID: 1419514974}
   - component: {fileID: 1419514973}
-  m_Layer: 7
+  m_Layer: 3
   m_Name: Bloque (2)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -13394,7 +13418,7 @@ GameObject:
   - component: {fileID: 1482417985}
   - component: {fileID: 1482417984}
   - component: {fileID: 1482417983}
-  m_Layer: 7
+  m_Layer: 3
   m_Name: Bloque (13)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -14244,7 +14268,7 @@ GameObject:
   - component: {fileID: 1570439920}
   - component: {fileID: 1570439919}
   - component: {fileID: 1570439918}
-  m_Layer: 7
+  m_Layer: 3
   m_Name: Bloque (12)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -14514,6 +14538,7 @@ GameObject:
   - component: {fileID: 1586302761}
   - component: {fileID: 1586302763}
   - component: {fileID: 1586302762}
+  - component: {fileID: 1586302764}
   m_Layer: 0
   m_Name: Bloque (27)
   m_TagString: Untagged
@@ -14530,7 +14555,7 @@ Transform:
   m_GameObject: {fileID: 1586302760}
   serializedVersion: 2
   m_LocalRotation: {x: -0.7071068, y: -0, z: -0, w: 0.7071068}
-  m_LocalPosition: {x: 17.46, y: 1.731, z: 0.41910014}
+  m_LocalPosition: {x: 16.87, y: 1.73, z: -3.71}
   m_LocalScale: {x: 1.9113191, y: 1, z: 14.817992}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -14589,6 +14614,27 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1586302760}
   m_Mesh: {fileID: 7087115522847617999, guid: f5398740d5a287a4ba35d276aca56a91, type: 3}
+--- !u!65 &1586302764
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1586302760}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 0.8381999, y: 12.851137, z: 0.83820015}
+  m_Center: {x: 0.0000004677762, y: -6.00647, z: 0.41910005}
 --- !u!1 &1607946073
 GameObject:
   m_ObjectHideFlags: 0
@@ -14875,7 +14921,7 @@ GameObject:
   - component: {fileID: 1638781898}
   - component: {fileID: 1638781897}
   - component: {fileID: 1638781896}
-  m_Layer: 7
+  m_Layer: 3
   m_Name: Bloque (10)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -16164,7 +16210,7 @@ GameObject:
   - component: {fileID: 1892837490}
   - component: {fileID: 1892837489}
   - component: {fileID: 1892837488}
-  m_Layer: 7
+  m_Layer: 3
   m_Name: Bloque (8)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -17033,7 +17079,7 @@ GameObject:
   - component: {fileID: 2001634776}
   - component: {fileID: 2001634775}
   - component: {fileID: 2001634774}
-  m_Layer: 7
+  m_Layer: 3
   m_Name: Bloque (9)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -17390,7 +17436,7 @@ GameObject:
   - component: {fileID: 2008492920}
   - component: {fileID: 2008492919}
   - component: {fileID: 2008492918}
-  m_Layer: 7
+  m_Layer: 3
   m_Name: Bloque (7)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -17956,7 +18002,7 @@ GameObject:
   - component: {fileID: 2084501989}
   - component: {fileID: 2084501988}
   - component: {fileID: 2084501990}
-  m_Layer: 7
+  m_Layer: 3
   m_Name: Bloque
   m_TagString: Untagged
   m_Icon: {fileID: 0}

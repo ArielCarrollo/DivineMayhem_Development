@@ -1714,6 +1714,7 @@ GameObject:
   - component: {fileID: 5334452214268716089}
   - component: {fileID: 3589195437581902874}
   - component: {fileID: 1924732712489996535}
+  - component: {fileID: 5413262903139459007}
   m_Layer: 8
   m_Name: Canvas
   m_TagString: Untagged
@@ -1803,7 +1804,7 @@ MonoBehaviour:
   m_BlockingObjects: 0
   m_BlockingMask:
     serializedVersion: 2
-    m_Bits: 4294967295
+    m_Bits: 127
 --- !u!114 &1924732712489996535
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1816,6 +1817,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f4d8f043d152c144986b7b6807a830ac, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!225 &5413262903139459007
+CanvasGroup:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1074267506367872479}
+  m_Enabled: 1
+  m_Alpha: 1
+  m_Interactable: 1
+  m_BlocksRaycasts: 1
+  m_IgnoreParentGroups: 0
 --- !u!1 &1127712875909932953
 GameObject:
   m_ObjectHideFlags: 0
@@ -6309,7 +6322,7 @@ Rigidbody:
   m_UseGravity: 1
   m_IsKinematic: 0
   m_Interpolate: 0
-  m_Constraints: 88
+  m_Constraints: 8
   m_CollisionDetection: 0
 --- !u!136 &5183570574983018631
 CapsuleCollider:
@@ -6347,6 +6360,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   nicknameText: {fileID: 5109178229081927284}
+  canvasGroup: {fileID: 5413262903139459007}
 --- !u!114 &269449521994973457
 MonoBehaviour:
   m_ObjectHideFlags: 0
