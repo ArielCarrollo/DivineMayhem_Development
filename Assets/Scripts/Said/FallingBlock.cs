@@ -1,62 +1,68 @@
 using System.Collections;
 using UnityEngine;
 
-// ponle BoxCollider y Rigidbody 3D al objeto
 [RequireComponent(typeof(BoxCollider))]
 [RequireComponent(typeof(Rigidbody))]
 public class FallingBlock : MonoBehaviour, IDestructible
 {
-    [SerializeField] private float tiempoParaDesactivar = 1.5f;
+    [Header("Configuración")]
+    [SerializeField] private float tiempoVida = 5f; // Tiempo antes de desaparecer tras caer
+    [SerializeField] private float gravedadExtra = 2f; // Empujón inicial hacia abajo
 
     private Rigidbody rb;
-    private bool yaCayo;
+    private Collider col;
+    private bool yaCayo = false;
     public bool YaCayo => yaCayo;
 
     private void Awake()
     {
         rb = GetComponent<Rigidbody>();
+        col = GetComponent<BoxCollider>();
+
+        // 1. Configuración Física "Hielo"
+        PhysicsMaterial slipperyMat = new PhysicsMaterial("BloqueResbaladizo");
+        slipperyMat.dynamicFriction = 0f;
+        slipperyMat.staticFriction = 0f;
+        slipperyMat.frictionCombine = PhysicsMaterialCombine.Minimum;
+
+        col.material = slipperyMat;
+
+        // 2. Setup Rigidbody
         rb.useGravity = false;
-        rb.isKinematic = true; // empieza quieto
+        rb.isKinematic = true;
+        // Interpolación para que se vea suave al caer
+        rb.interpolation = RigidbodyInterpolation.Interpolate;
+        // Masa estándar
+        rb.mass = 10f;
     }
 
-    /// <summary>
-    /// Lógica propia del bloque: se suelta y luego se desactiva.
-    /// </summary>
     public void HacerCaer()
     {
         if (yaCayo) return;
-
         yaCayo = true;
+
+        // Activar físicas
         rb.isKinematic = false;
         rb.useGravity = true;
 
-        StartCoroutine(DesactivarLuego());
+        // TRUCO: Despertar el RB y empujar abajo para romper la fricción estática
+        rb.WakeUp();
+        rb.AddForce(Vector3.down * gravedadExtra, ForceMode.VelocityChange);
+
+        // Iniciar cuenta atrás para desactivar (limpieza)
+        StartCoroutine(DesactivarRutina());
     }
 
-    private IEnumerator DesactivarLuego()
+    private IEnumerator DesactivarRutina()
     {
-        yield return new WaitForSeconds(tiempoParaDesactivar);
+        // Esperamos un tiempo prudente para que caiga al vacío
+        yield return new WaitForSeconds(tiempoVida);
 
-        // Aquí puedes cambiar a SetActive(false), o resetear posición si quieres que reaparezca, etc.
+        // Lo desactivamos suavemente
         gameObject.SetActive(false);
     }
 
-    // -------- Implementación de IDestructible --------
-
-    void IDestructible.TriggerDestruction()
-    {
-        HacerCaer();
-    }
-
-    void IDestructible.TriggerDestruction(Vector3 origin)
-    {
-        HacerCaer();
-
-        // Opcional: pequeño empujón extra
-        Vector3 dir = (transform.position - origin).normalized;
-        if (rb != null && dir != Vector3.zero)
-        {
-            rb.AddForce(dir * 2f, ForceMode.Impulse);
-        }
-    }
+    // Interfaz IDestructible (por si la bola o algo lo golpea)
+    public void TriggerDestruction() => HacerCaer();
+    public void TriggerDestruction(Vector3 origin) => HacerCaer();
 }

@@ -5,11 +5,7 @@ using System.Collections.Generic;
 public class OfflinePlayerSpawner : MonoBehaviour
 {
     [Header("Configuración")]
-    [Tooltip("El prefab del personaje JUGABLE (debe tener PlayerInput, CharacterBase y PlayerAppearance).")]
     [SerializeField] private GameObject playerGamePrefab;
-
-    [Header("Puntos de Aparición (Ordenados)")]
-    [Tooltip("Arrastra aquí los Transforms vacíos. El Elemento 0 es para el P1, el 1 para el P2, etc.")]
     [SerializeField] private Transform[] spawnPoints;
 
     private void Start()
@@ -17,7 +13,7 @@ public class OfflinePlayerSpawner : MonoBehaviour
         // 1. Validar GameManager
         if (GameManager.Instance == null)
         {
-            Debug.LogError("[Spawner] No hay GameManager. No puedo saber quiénes juegan.");
+            Debug.LogError("[Spawner] ❌ ERROR: No hay GameManager. No puedo leer jugadores.");
             return;
         }
 
@@ -25,86 +21,73 @@ public class OfflinePlayerSpawner : MonoBehaviour
 
         if (playersToSpawn == null || playersToSpawn.Count == 0)
         {
-            Debug.LogWarning("[Spawner] La lista de jugadores está vacía.");
+            Debug.LogWarning("[Spawner] ⚠️ La lista de jugadores del GameManager está vacía.");
             return;
         }
 
-        // 2. Recorrer la lista de jugadores registrados y spawnearlos en orden
+        Debug.Log($"[Spawner] Iniciando spawn de {playersToSpawn.Count} jugadores...");
+
+        // 2. Spawnear
         for (int i = 0; i < playersToSpawn.Count; i++)
         {
             LocalPlayerData data = playersToSpawn[i];
+            Vector3 targetPos = Vector3.zero;
+            Quaternion targetRot = Quaternion.identity;
 
-            // Validar que exista un punto de spawn para este índice
-            if (spawnPoints != null && i < spawnPoints.Length)
+            // Validar punto de spawn
+            if (spawnPoints != null && i < spawnPoints.Length && spawnPoints[i] != null)
             {
-                SpawnPlayer(data, spawnPoints[i].position, spawnPoints[i].rotation);
+                targetPos = spawnPoints[i].position;
+                targetRot = spawnPoints[i].rotation;
+                Debug.Log($"[Spawner] Jugador {i + 1} ({data.Username}) -> Asignado SpawnPoint[{i}] en {targetPos}");
             }
             else
             {
-                Debug.LogWarning($"[Spawner] No hay punto de spawn definido para el Jugador {i + 1}. Spawneando en (0,0,0).");
-                SpawnPlayer(data, Vector3.zero, Quaternion.identity);
+                Debug.LogError($"[Spawner] ❌ Jugador {i + 1} NO tiene punto de spawn válido. Usando (0,0,0). Revisa el Inspector.");
+                targetPos = Vector3.zero;
             }
+
+            SpawnPlayer(data, targetPos, targetRot);
         }
     }
 
     private void SpawnPlayer(LocalPlayerData data, Vector3 position, Quaternion rotation)
     {
-        // A. RECUPERAR EL DISPOSITIVO (Mando/Teclado)
-        // Esto responde a tu duda: Aquí buscamos EXACTAMENTE el mando que usó este jugador.
         InputDevice device = GetDeviceForPlayer(data.PlayerIndex);
 
-        // B. INSTANCIAR CON CONTROL ASIGNADO (La clave para que no interfieran)
-        // 'pairWithDevice' fuerza a que este prefab SOLO escuche a ese mando.
+        // Instanciar vinculando el mando específico
         var pInput = PlayerInput.Instantiate(
             playerGamePrefab,
             controlScheme: null,
             pairWithDevice: device
         );
 
-        // C. POSICIONAR
+        // Mover a la posición
         pInput.transform.position = position;
         pInput.transform.rotation = rotation;
+
+        // Poner nombre para identificarlo en jerarquía
         pInput.name = $"Player_{data.PlayerIndex + 1}_{data.Username}";
-        // --- CORRECCIÓN DE ÍNDICES ---
+
+        // Configurar CharacterBase
         var charBase = pInput.GetComponent<CharacterBase>();
         if (charBase != null)
         {
-            // IMPORTANTE: Esta línea arregla el P2/P1
             charBase.SetPlayerInfo(data.PlayerIndex, data.Username);
         }
-        // D. APLICAR DATOS VISUALES (Skin)
-        // Buscamos el script de apariencia que hicimos antes
+
+        // Configurar Apariencia
         var appearance = pInput.GetComponent<PlayerAppearance>();
         if (appearance != null)
         {
             appearance.ApplyOfflineAppearance(data.BodyIndex, data.EyesIndex, data.GlovesIndex);
         }
-
-        // E. REGISTRARSE AUTOMÁTICAMENTE
-        // (Tu CharacterBase ya hace esto en Start, pero es bueno asegurarse o pasarle datos extra si hace falta)
-        if (charBase != null)
-        {
-            // Opcional: Si quieres pasarle el nombre para que lo muestre encima de la cabeza
-            // charBase.SetUsername(data.Username); 
-        }
     }
 
-    // Lógica para re-conectar el mando correcto
     private InputDevice GetDeviceForPlayer(int playerIndex)
     {
-        // NOTA: Esto asume que el orden de los Gamepads no cambió drásticamente.
-        // En local suele ser estable: Gamepad[0] es el primero que se conectó.
-
         var gamepads = Gamepad.all;
-
-        // Estrategia: Si el índice del jugador coincide con un gamepad, se lo damos.
-        if (playerIndex < gamepads.Count)
-        {
-            return gamepads[playerIndex];
-        }
-
-        // Si no hay suficientes gamepads, quizás era el teclado.
-        // Asignamos el teclado al jugador que no tenga gamepad.
+        if (playerIndex < gamepads.Count) return gamepads[playerIndex];
         return Keyboard.current;
     }
 }

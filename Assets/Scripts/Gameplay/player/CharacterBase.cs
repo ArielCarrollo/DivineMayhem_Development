@@ -90,7 +90,10 @@ public abstract class CharacterBase : MonoBehaviour
         }
 
         // Configuración de Rigidbody
-        rb.constraints = RigidbodyConstraints.FreezePositionZ | RigidbodyConstraints.FreezeRotation;
+        rb.constraints = RigidbodyConstraints.FreezePositionZ |
+                          RigidbodyConstraints.FreezeRotationX |
+                          RigidbodyConstraints.FreezeRotationZ;
+
         rb.interpolation = RigidbodyInterpolation.Interpolate;
         rb.collisionDetectionMode = CollisionDetectionMode.Continuous;
 
@@ -106,6 +109,10 @@ public abstract class CharacterBase : MonoBehaviour
         }
         InactivityTimer = maxInactivityTime;
         PushTimer = 0f;
+        if (Mathf.Abs(transform.rotation.eulerAngles.y) < 1f)
+        {
+            transform.rotation = Quaternion.Euler(0, -90, 0);
+        }
     }
 
     protected virtual void Start()
@@ -134,6 +141,8 @@ public abstract class CharacterBase : MonoBehaviour
         if (CrownGameManager.Instance != null) { CrownGameManager.Instance.RegisterPlayer(this); return; }
         if (MinigameManager.Instance != null) { MinigameManager.Instance.RegisterPlayer(this); return; }
         if (SurvivalGameManager.Instance != null) { SurvivalGameManager.Instance.RegisterPlayer(this); return; }
+        if (SpikyBallGameManager.Instance != null) { SpikyBallGameManager.Instance.RegisterPlayer(this); return; }
+        if (FallingGameManager.Instance != null) { FallingGameManager.Instance.RegisterPlayer(this); return; }
     }
 
     protected virtual void OnEnable()
@@ -202,13 +211,27 @@ public abstract class CharacterBase : MonoBehaviour
         Debug.Log($"Jugador {PlayerIndex + 1} se durmió.");
 
         if (CrownGameManager.Instance != null) CrownGameManager.Instance.OnPlayerDied(this);
-        else if (SurvivalGameManager.Instance != null) SurvivalGameManager.Instance.OnPlayerDied(this);
+        else if (SpikyBallGameManager.Instance != null) SpikyBallGameManager.Instance.OnPlayerDied(this);
+        else if (FallingGameManager.Instance != null)
+            FallingGameManager.Instance.OnPlayerDied(this);
 
         if (GameManager.Instance != null) GameManager.Instance.TriggerCameraShake();
 
         gameObject.SetActive(false);
     }
+    public void Kill()
+    {
+        if (!gameObject.activeSelf) return;
 
+        Debug.Log($"Jugador {PlayerIndex + 1} ha muerto.");
+
+        // Efectos (Cámara, Partículas)
+        //if (deathVFX) Instantiate(deathVFX, transform.position, Quaternion.identity);
+        if (GameManager.Instance != null) GameManager.Instance.TriggerCameraShake();
+
+        // Desactivar
+        gameObject.SetActive(false);
+    }
     protected virtual void UltimateAttack() { }
     private void StartCharging() { }
     private void StopCharging() { }
@@ -289,32 +312,62 @@ public abstract class CharacterBase : MonoBehaviour
     private IEnumerator HitCheckRoutine()
     {
         yield return new WaitForSeconds(attackDelay);
-        if (hitPoint == null) yield break;
 
-        Collider[] hits = Physics.OverlapSphere(hitPoint.position, hitRadius, hitableLayers);
+        // CAMBIO: Usamos OverlapCapsule en lugar de Sphere
+        // Detecta colisiones en un cilindro que va desde el centro del jugador hasta el HitPoint
+        // Esto elimina el "punto ciego" si el enemigo está pegado a ti.
+
+        Vector3 startPoint = transform.position + Vector3.up * 1.0f; // Desde el pecho/centro
+        Vector3 endPoint = hitPoint != null ? hitPoint.position : transform.position + transform.forward;
+
+        Collider[] hits = Physics.OverlapCapsule(startPoint, endPoint, hitRadius, hitableLayers);
+
         foreach (var hit in hits)
         {
             if (hit.gameObject == gameObject) continue;
 
+            // ... (El resto de tu lógica de golpe es idéntica) ...
             if (hit.TryGetComponent<CharacterBase>(out CharacterBase victim))
             {
+                // 1. PRIMERO: Lógica de Juego (Robar Corona)
+                if (CrownGameManager.Instance != null && victim.IsKing)
+                {
+                    Debug.Log($"¡{name} le robó la corona a {victim.name}!");
+                    CrownGameManager.Instance.TransferCrown(this);
+                }
+
+                // 2. SEGUNDO: Física (Empujón)
                 Vector3 dir = (victim.transform.position - transform.position).normalized;
                 dir.y = 0.2f;
                 dir.z = 0;
                 dir.Normalize();
 
                 victim.ApplyKnockback(dir, punchForce);
-
-                if (CrownGameManager.Instance != null && victim.IsKing)
-                {
-                    CrownGameManager.Instance.TransferCrown(this);
-                }
             }
             else if (hit.TryGetComponent<Rigidbody>(out Rigidbody objRb))
             {
                 Vector3 dir = (hit.transform.position - transform.position).normalized + Vector3.up * 0.3f;
                 objRb.AddForce(dir * punchForce, ForceMode.Impulse);
             }
+        }
+    }
+
+    // Actualiza los Gizmos para ver la cápsula en el editor
+    private void OnDrawGizmosSelected()
+    {
+        if (hitPoint != null)
+        {
+            Gizmos.color = Color.red;
+            // Dibujamos una línea para representar el alcance
+            Vector3 startPoint = transform.position + Vector3.up * 1.0f;
+            Gizmos.DrawLine(startPoint, hitPoint.position);
+            Gizmos.DrawWireSphere(hitPoint.position, hitRadius);
+            Gizmos.DrawWireSphere(startPoint, hitRadius);
+        }
+        if (groundCheck != null)
+        {
+            Gizmos.color = Color.green;
+            Gizmos.DrawWireSphere(groundCheck.position, groundDistance);
         }
     }
 
@@ -351,19 +404,5 @@ public abstract class CharacterBase : MonoBehaviour
     {
         rb.linearVelocity = Vector3.zero;
         transform.position = pos;
-    }
-
-    private void OnDrawGizmosSelected()
-    {
-        if (hitPoint != null)
-        {
-            Gizmos.color = Color.red;
-            Gizmos.DrawWireSphere(hitPoint.position, hitRadius);
-        }
-        if (groundCheck != null)
-        {
-            Gizmos.color = Color.green;
-            Gizmos.DrawWireSphere(groundCheck.position, groundDistance);
-        }
     }
 }

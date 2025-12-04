@@ -89,6 +89,17 @@
                 },
                 {
                     "name": "",
+                    "id": "9d1ac7fc-0d21-4c5f-a137-fedc0939d7fb",
+                    "path": "<Keyboard>/j",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "Fire",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
                     "id": "c54cf53a-8208-4a6c-adca-7ce3dc56e2df",
                     "path": "<Gamepad>/leftStick",
                     "interactions": "",
