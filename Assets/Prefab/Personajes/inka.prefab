@@ -6257,7 +6257,7 @@ GameObject:
   - component: {fileID: 8051764725029794518}
   - component: {fileID: 1407508461164253781}
   m_Layer: 0
-  m_Name: Ninja 1
+  m_Name: inka
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0

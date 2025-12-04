@@ -52,8 +52,9 @@ public class IntermissionUI : MonoBehaviour
             // Calculamos el puntaje inicial para la animación (Total - Ganado)
             int startScore = p.MatchScore - pointsEarned;
 
-            // Setup inicial (muestra el puntaje antiguo)
-            script.Setup(p.Username, p.MatchScore, pointsEarned, GetColor(p.PlayerIndex));
+            string pName = GameManager.Instance.GetPantheonName(p.PantheonIndex);
+
+            script.Setup(p.Username, p.MatchScore, pointsEarned, GetColor(p.PlayerIndex), pName);
 
             // --- ANIMACIONES DOTWEEN ---
             // 1. Entrada (Aparecer)
@@ -87,7 +88,10 @@ public class IntermissionUI : MonoBehaviour
     private void ShowWinner(LocalPlayerData winner)
     {
         winnerPanel.SetActive(true);
-        winnerNameText.text = $"¡{winner.Username} GANA!";
+        string pName = GameManager.Instance.GetPantheonName(winner.PantheonIndex);
+
+        // "¡EL PANTEÓN INKA SE LLEVA LA VICTORIA!"
+        winnerNameText.text = $"¡EL {pName.ToUpper()} SE LLEVA LA VICTORIA!";
         winnerNameText.color = GetColor(winner.PlayerIndex);
 
         StartCoroutine(ReturnToMenuRoutine());

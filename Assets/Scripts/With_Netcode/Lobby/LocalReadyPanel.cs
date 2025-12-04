@@ -11,6 +11,12 @@ public class LocalReadyPanel : MonoBehaviour
     [SerializeField] public Button ReadyButton;
     [SerializeField] private TextMeshProUGUI readyButtonText;
 
+    [Header("Selección de Clase")]
+    [SerializeField] private TextMeshProUGUI classText;
+    [SerializeField] public Button BtnNextClass; // Público para linkear navegación
+    [SerializeField] public Button BtnPrevClass;
+    [SerializeField] private Image classImage;
+
     [Header("Configuración Visual")]
     [SerializeField] private Color notReadyColor = new Color(0.2f, 0.2f, 0.2f, 0.5f);
     [SerializeField] private Color readyStateColor = new Color(0.2f, 0.8f, 0.2f, 1f);
@@ -24,32 +30,103 @@ public class LocalReadyPanel : MonoBehaviour
     {
         manager = lobbyManager;
         myData = data;
-        myInput = input; // Guardamos referencia al input
+        myInput = input;
         myEventSystem = input.GetComponent<EventSystem>();
 
-        // 1. AUTO-BUSCAR REFERENCIAS
+        // Auto-Referencias
         if (nameText == null) nameText = transform.Find("name")?.GetComponent<TextMeshProUGUI>();
         if (ReadyButton == null) ReadyButton = transform.Find("ReadyButton")?.GetComponent<Button>();
-        if (ReadyButton != null && readyButtonText == null) readyButtonText = ReadyButton.GetComponentInChildren<TextMeshProUGUI>();
 
-        // 2. APLICAR DATOS
+        // Busca los botones de clase si no están asignados (asegúrate de ponerles nombre en el prefab)
+        if (BtnNextClass == null) BtnNextClass = transform.Find("BtnNext")?.GetComponent<Button>();
+        if (BtnPrevClass == null) BtnPrevClass = transform.Find("BtnPrev")?.GetComponent<Button>();
+        if (classText == null) classText = transform.Find("ClassText")?.GetComponent<TextMeshProUGUI>();
+        if (classImage == null) classImage = transform.Find("ClassImage")?.GetComponent<Image>();
+
         if (nameText != null)
         {
             nameText.text = data.Username;
             nameText.color = playerColor;
         }
 
-        // 3. SUSCRIPCIÓN DIRECTA A HARDWARE (La solución "Fuerza Bruta")
-        // Buscamos la acción 'Submit' en el mapa 'UI' o 'Player'
-        InputAction submitAction = myInput.actions.FindAction("Submit"); // Mapa UI
-        if (submitAction == null) submitAction = myInput.actions.FindAction("Jump"); // Fallback si no tienes mapa UI (Botón Sur)
-
-        if (submitAction != null)
+        // Listeners
+        if (ReadyButton != null)
         {
-            submitAction.performed += OnHardwareSubmit;
+            ReadyButton.onClick.RemoveAllListeners();
+            ReadyButton.onClick.AddListener(() => ToggleReady());
         }
 
+        if (BtnNextClass != null)
+        {
+            BtnNextClass.onClick.RemoveAllListeners();
+            BtnNextClass.onClick.AddListener(() => manager.ChangePlayerClass(myData, 1));
+        }
+        if (BtnPrevClass != null)
+        {
+            BtnPrevClass.onClick.RemoveAllListeners();
+            BtnPrevClass.onClick.AddListener(() => manager.ChangePlayerClass(myData, -1));
+        }
+
+        // Navegación Local (Para P2, P3...)
+        // Si no es el P1 (que se maneja en el Manager), configuramos navegación interna básica
+        if (input.playerIndex != 0)
+        {
+            SetupInternalNavigation();
+        }
+
+        // Input Físico "A"
+        InputAction submitAction = myInput.actions.FindAction("Submit");
+        if (submitAction == null) submitAction = myInput.actions.FindAction("Jump");
+        if (submitAction != null) submitAction.performed += OnHardwareSubmit;
+
         UpdateUI();
+        UpdateClassUI();
+    }
+
+    private void SetupInternalNavigation()
+    {
+        if (ReadyButton == null || BtnNextClass == null || BtnPrevClass == null) return;
+
+        // 1. Configurar Botón PREV (<)
+        Navigation prevNav = new Navigation { mode = Navigation.Mode.Explicit };
+        prevNav.selectOnRight = BtnNextClass; // Derecha -> Next
+        prevNav.selectOnDown = ReadyButton;   // Abajo -> Ready
+        prevNav.selectOnUp = BtnNextClass;    // Arriba -> Loop a Next (opcional) o nada
+        // Bloqueo izquierdo para no salirse de la tarjeta
+        prevNav.selectOnLeft = BtnNextClass;  // Loop cíclico (Izquierda va al otro extremo)
+        BtnPrevClass.navigation = prevNav;
+
+        // 2. Configurar Botón NEXT (>)
+        Navigation nextNav = new Navigation { mode = Navigation.Mode.Explicit };
+        nextNav.selectOnLeft = BtnPrevClass;  // Izquierda -> Prev
+        nextNav.selectOnDown = ReadyButton;   // Abajo -> Ready
+        nextNav.selectOnUp = BtnPrevClass;    // Arriba -> Loop
+        // Bloqueo derecho
+        nextNav.selectOnRight = BtnPrevClass; // Loop cíclico
+        BtnNextClass.navigation = nextNav;
+
+        // 3. Configurar Botón READY (Listo)
+        Navigation readyNav = new Navigation { mode = Navigation.Mode.Explicit };
+        readyNav.selectOnUp = BtnNextClass;   // Subir -> Next (por defecto)
+
+        // Atajos laterales desde Ready:
+        readyNav.selectOnLeft = BtnPrevClass; // Izquierda -> Sube a Prev
+        readyNav.selectOnRight = BtnNextClass;// Derecha -> Sube a Next
+
+        // Bloqueo abajo
+        readyNav.selectOnDown = BtnNextClass; // Loop vertical
+
+        ReadyButton.navigation = readyNav;
+    }
+
+    public void UpdateClassUI()
+    {
+        if (classText != null && GameManager.Instance != null)
+        {
+            classText.text = GameManager.Instance.GetPantheonName(myData.PantheonIndex);
+        }
+        if (classImage != null)
+            classImage.sprite = GameManager.Instance.GetPantheonIcon(myData.PantheonIndex);
     }
 
     private void OnDestroy()
@@ -106,7 +183,9 @@ public class LocalReadyPanel : MonoBehaviour
     {
         if (nameText != null) nameText.text = myData.Username;
 
-        if (myData.IsReady)
+        bool isReady = myData.IsReady;
+
+        if (isReady)
         {
             if (readyButtonText) readyButtonText.text = "¡LISTO!";
             if (ReadyButton) ReadyButton.image.color = readyStateColor;
@@ -116,5 +195,9 @@ public class LocalReadyPanel : MonoBehaviour
             if (readyButtonText) readyButtonText.text = "No Listo";
             if (ReadyButton) ReadyButton.image.color = notReadyColor;
         }
+
+        // Desactivar botones de cambio si está listo
+        if (BtnNextClass) BtnNextClass.interactable = !isReady;
+        if (BtnPrevClass) BtnPrevClass.interactable = !isReady;
     }
 }

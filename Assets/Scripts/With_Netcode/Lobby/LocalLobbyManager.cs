@@ -25,29 +25,25 @@ public class LocalLobbyManager : MonoBehaviour
     private int selectedGameIndex = 0; // 0 = Aleatorio, 1...N = Juegos específicos
     private List<string> availableGames;
 
+    // Diccionario para acceder rápidamente a los datos
     private Dictionary<LocalPlayerContext, LocalReadyPanel> activePanels = new Dictionary<LocalPlayerContext, LocalReadyPanel>();
     private List<LocalPlayerData> finalPlayersList = new List<LocalPlayerData>();
 
-    private void Awake()
-    {
-        if (activePanels == null) activePanels = new Dictionary<LocalPlayerContext, LocalReadyPanel>();
-    }
+    // Cantidad de panteones (definido en GameManager)
+    private int totalPantheons = 4;
+
+    private void Awake() { if (activePanels == null) activePanels = new Dictionary<LocalPlayerContext, LocalReadyPanel>(); }
 
     private void Start()
     {
-        // Inicializar opciones
         if (GameManager.Instance != null)
         {
             availableGames = GameManager.Instance.MinigameScenes;
+            totalPantheons = GameManager.Instance.PantheonNames.Length;
         }
-        else
-        {
-            availableGames = new List<string>(); // Fallback vacio
-        }
+        else availableGames = new List<string>();
 
         UpdateConfigUI();
-
-        // Asignar listeners a los botones
         btnRoundUp.onClick.AddListener(() => ChangeRounds(1));
         btnRoundDown.onClick.AddListener(() => ChangeRounds(-1));
         btnGameNext.onClick.AddListener(() => ChangeGameMode(1));
@@ -133,6 +129,18 @@ public class LocalLobbyManager : MonoBehaviour
         if (context == null || context.Data == null) return;
         if (activePanels.ContainsKey(context)) return;
 
+        // 1. Asignar Clase Inicial (Sin repetir si es posible)
+        // Intentamos darle la clase que corresponde a su índice (P1->0, P2->1)
+        int initialClass = context.Input.playerIndex % totalPantheons;
+
+        // Verificar si ya está cogida, si sí, buscar la siguiente libre
+        while (IsClassTaken(initialClass, context))
+        {
+            initialClass = (initialClass + 1) % totalPantheons;
+        }
+        context.Data.PantheonIndex = initialClass;
+
+        // 2. UI
         GameObject panelObj = Instantiate(readyPanelPrefab, readyPanelParent);
         LocalReadyPanel panelScript = panelObj.GetComponent<LocalReadyPanel>();
 
@@ -144,31 +152,144 @@ public class LocalLobbyManager : MonoBehaviour
             activePanels.Add(context, panelScript);
             UpdateLobbyStatus();
 
-            var pEventSystem = context.GetComponent<EventSystem>();
+            // Configurar Navegación
+            StartCoroutine(SetupNavigationRoutine(context, panelScript));
+        }
+    }
 
-            if (pEventSystem != null && panelScript.ReadyButton != null)
+    private IEnumerator SetupNavigationRoutine(LocalPlayerContext context, LocalReadyPanel panel)
+    {
+        yield return null;
+
+        // Forzar selección en el botón de "Siguiente Clase" o "Ready"
+        var es = context.GetComponent<EventSystem>();
+        if (es != null && panel.ReadyButton != null)
+        {
+            es.SetSelectedGameObject(panel.ReadyButton.gameObject);
+        }
+
+        if (context.Input.playerIndex == 0) SetupP1Navigation(panel.ReadyButton, panel.BtnNextClass, panel.BtnPrevClass);
+    }
+
+    public void ChangePlayerClass(LocalPlayerData data, int direction)
+    {
+        int originalIndex = data.PantheonIndex;
+        int newIndex = originalIndex;
+
+        // Buscar el siguiente índice libre
+        for (int i = 0; i < totalPantheons; i++)
+        {
+            newIndex = (newIndex + direction);
+            if (newIndex < 0) newIndex = totalPantheons - 1;
+            else if (newIndex >= totalPantheons) newIndex = 0;
+
+            // Si nadie más tiene esta clase, nos la quedamos
+            if (!IsClassTaken(newIndex, null)) // null porque ya tenemos la ref en 'data' pero la función necesita contexto para ignorarse a sí mismo (simplificado aquí)
             {
-                // CORRECCIÓN 1: Usar corrutina para seleccionar al siguiente frame (más seguro)
-                StartCoroutine(SelectButtonNextFrame(pEventSystem, panelScript.ReadyButton.gameObject));
-
-                if (context.Input.playerIndex == 0)
+                // Pequeña corrección: IsClassTaken necesita saber quién pregunta para no contar al propio jugador si ya la tiene (aunque aquí cambiamos)
+                // Revisamos la lista global
+                bool taken = false;
+                foreach (var kvp in activePanels)
                 {
-                    // P1 controla configuración
-                    SetupP1Navigation(panelScript.ReadyButton);
+                    // Si otro jugador (no yo) tiene esa clase
+                    if (kvp.Key.Data != data && kvp.Key.Data.PantheonIndex == newIndex)
+                    {
+                        taken = true;
+                        break;
+                    }
                 }
-                else
+
+                if (!taken)
                 {
-                    // CORRECCIÓN 2: En lugar de 'None', usamos 'Explicit' apuntando a sí mismo.
-                    // Esto evita que el EventSystem deseleccione el botón si mueven el stick.
-                    Navigation nav = new Navigation();
-                    nav.mode = Navigation.Mode.Explicit;
-                    nav.selectOnUp = panelScript.ReadyButton;
-                    nav.selectOnDown = panelScript.ReadyButton;
-                    nav.selectOnLeft = panelScript.ReadyButton;
-                    nav.selectOnRight = panelScript.ReadyButton;
-                    panelScript.ReadyButton.navigation = nav;
+                    data.PantheonIndex = newIndex;
+                    // Actualizar UI del panel correspondiente
+                    foreach (var kvp in activePanels)
+                    {
+                        if (kvp.Key.Data == data)
+                        {
+                            kvp.Value.UpdateClassUI();
+                            break;
+                        }
+                    }
+                    return; // Éxito
                 }
             }
+        }
+    }
+
+    private bool IsClassTaken(int index, LocalPlayerContext ignoreMe)
+    {
+        foreach (var kvp in activePanels)
+        {
+            if (kvp.Key != ignoreMe && kvp.Key.Data.PantheonIndex == index) return true;
+        }
+        return false;
+    }
+
+    private void SetupP1Navigation(Button p1Ready, Button p1Next, Button p1Prev)
+    {
+        // 1. Conectar fila superior entre sí (Configuración Global)
+        void LinkH(Button l, Button r)
+        {
+            Navigation ln = l.navigation; ln.mode = Navigation.Mode.Explicit; ln.selectOnRight = r; l.navigation = ln;
+            Navigation rn = r.navigation; rn.mode = Navigation.Mode.Explicit; rn.selectOnLeft = l; r.navigation = rn;
+        }
+        LinkH(btnRoundDown, btnRoundUp);
+        LinkH(btnRoundUp, btnGamePrev);
+        LinkH(btnGamePrev, btnGameNext);
+
+        // Si tenemos los botones de clase (Prev/Next), hacemos la conexión en "H"
+        if (p1Next != null && p1Prev != null)
+        {
+            // --- BAJADA (Desde Config a Clases) ---
+            // Lado Izquierdo (Rondas) baja al botón < (Prev)
+            void LinkDownTo(Button origin, Button target)
+            { Navigation n = origin.navigation; n.selectOnDown = target; origin.navigation = n; }
+
+            LinkDownTo(btnRoundDown, p1Prev);
+            LinkDownTo(btnRoundUp, p1Prev);
+
+            // Lado Derecho (Juegos) baja al botón > (Next)
+            LinkDownTo(btnGamePrev, p1Next);
+            LinkDownTo(btnGameNext, p1Next);
+
+            // --- SUBIDA (Desde Clases a Config) ---
+            // Botón < (Prev) sube a Rondas
+            Navigation prevNav = p1Prev.navigation;
+            prevNav.mode = Navigation.Mode.Explicit;
+            prevNav.selectOnUp = btnRoundDown;
+            prevNav.selectOnRight = p1Next; // Ir a la derecha cruza al Next
+            prevNav.selectOnDown = p1Ready; // Bajar va al Ready
+            p1Prev.navigation = prevNav;
+
+            // Botón > (Next) sube a Juegos
+            Navigation nextNav = p1Next.navigation;
+            nextNav.mode = Navigation.Mode.Explicit;
+            nextNav.selectOnUp = btnGameNext;
+            nextNav.selectOnLeft = p1Prev;  // Ir a la izquierda cruza al Prev
+            nextNav.selectOnDown = p1Ready; // Bajar va al Ready
+            p1Next.navigation = nextNav;
+
+            // --- READY (El ancla final) ---
+            Navigation rNav = p1Ready.navigation;
+            rNav.mode = Navigation.Mode.Explicit;
+            rNav.selectOnUp = p1Next; // Subir va por defecto a la derecha (o Prev si prefieres)
+            // Truco: Hacemos que Left/Right en el botón Ready vayan a Prev/Next también
+            rNav.selectOnLeft = p1Prev;
+            rNav.selectOnRight = p1Next;
+            p1Ready.navigation = rNav;
+        }
+        else
+        {
+            // Si no hay botones de clase (fallback), todo baja al Ready
+            void LinkToReady(Button t) { Navigation n = t.navigation; n.selectOnDown = p1Ready; t.navigation = n; }
+            LinkToReady(btnRoundDown); LinkToReady(btnRoundUp);
+            LinkToReady(btnGamePrev); LinkToReady(btnGameNext);
+
+            Navigation rNav = p1Ready.navigation;
+            rNav.mode = Navigation.Mode.Explicit;
+            rNav.selectOnUp = btnRoundDown;
+            p1Ready.navigation = rNav;
         }
     }
     private IEnumerator SelectButtonNextFrame(EventSystem es, GameObject btn)

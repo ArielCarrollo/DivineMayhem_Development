@@ -49,6 +49,16 @@ MonoBehaviour:
   - Crown Catching
   - Crazy Ball
   - Falling Floor
+  PantheonNames:
+  - "Pante\xF3n Inka"
+  - "Pante\xF3n Griego"
+  - "Pante\xF3n Sinto\xEDsta"
+  - "Pante\xF3n N\xF3rdico"
+  PantheonIcons:
+  - {fileID: 21300000, guid: e563ee9f6f789d545943021a025dc886, type: 3}
+  - {fileID: 21300000, guid: 74e77c185edf0844eb96648f70afbe22, type: 3}
+  - {fileID: 21300000, guid: be85ce0175b1c2c4d82bb4f8043bf48f, type: 3}
+  - {fileID: 21300000, guid: 7b0a745e5803f5f40b7c02e0615cf0c1, type: 3}
   TotalRounds: 5
   CurrentRound: 0
 --- !u!114 &3113148977895192487

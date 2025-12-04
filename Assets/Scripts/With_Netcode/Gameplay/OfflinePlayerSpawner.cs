@@ -4,48 +4,26 @@ using System.Collections.Generic;
 
 public class OfflinePlayerSpawner : MonoBehaviour
 {
-    [Header("Configuración")]
-    [SerializeField] private GameObject playerGamePrefab;
+    [Header("Configuración de Clases")]
+    [Tooltip("Orden: 0=Inka, 1=Griego, 2=Sintoísta, 3=Nórdico (Debe coincidir con GameManager)")]
+    [SerializeField] private GameObject[] pantheonPrefabs;
+
+    [Header("Puntos de Aparición")]
     [SerializeField] private Transform[] spawnPoints;
 
     private void Start()
     {
-        // 1. Validar GameManager
-        if (GameManager.Instance == null)
-        {
-            Debug.LogError("[Spawner] ❌ ERROR: No hay GameManager. No puedo leer jugadores.");
-            return;
-        }
+        if (GameManager.Instance == null) return;
 
         List<LocalPlayerData> playersToSpawn = GameManager.Instance.LocalPlayers;
 
-        if (playersToSpawn == null || playersToSpawn.Count == 0)
-        {
-            Debug.LogWarning("[Spawner] ⚠️ La lista de jugadores del GameManager está vacía.");
-            return;
-        }
-
-        Debug.Log($"[Spawner] Iniciando spawn de {playersToSpawn.Count} jugadores...");
-
-        // 2. Spawnear
         for (int i = 0; i < playersToSpawn.Count; i++)
         {
             LocalPlayerData data = playersToSpawn[i];
-            Vector3 targetPos = Vector3.zero;
-            Quaternion targetRot = Quaternion.identity;
 
-            // Validar punto de spawn
-            if (spawnPoints != null && i < spawnPoints.Length && spawnPoints[i] != null)
-            {
-                targetPos = spawnPoints[i].position;
-                targetRot = spawnPoints[i].rotation;
-                Debug.Log($"[Spawner] Jugador {i + 1} ({data.Username}) -> Asignado SpawnPoint[{i}] en {targetPos}");
-            }
-            else
-            {
-                Debug.LogError($"[Spawner] ❌ Jugador {i + 1} NO tiene punto de spawn válido. Usando (0,0,0). Revisa el Inspector.");
-                targetPos = Vector3.zero;
-            }
+            // Posición
+            Vector3 targetPos = (spawnPoints != null && i < spawnPoints.Length) ? spawnPoints[i].position : Vector3.zero;
+            Quaternion targetRot = (spawnPoints != null && i < spawnPoints.Length) ? spawnPoints[i].rotation : Quaternion.identity;
 
             SpawnPlayer(data, targetPos, targetRot);
         }
@@ -54,33 +32,37 @@ public class OfflinePlayerSpawner : MonoBehaviour
     private void SpawnPlayer(LocalPlayerData data, Vector3 position, Quaternion rotation)
     {
         InputDevice device = GetDeviceForPlayer(data.PlayerIndex);
+        if (Mathf.Abs(rotation.eulerAngles.y) < 1f) rotation = Quaternion.Euler(0, -90, 0);
 
-        // Instanciar vinculando el mando específico
+        // --- SELECCIÓN DE PREFAB ---
+        GameObject prefabToUse = null;
+        if (pantheonPrefabs != null && data.PantheonIndex < pantheonPrefabs.Length)
+        {
+            prefabToUse = pantheonPrefabs[data.PantheonIndex];
+        }
+
+        if (prefabToUse == null)
+        {
+            Debug.LogError($"[Spawner] No hay prefab para el Panteón {data.PantheonIndex}! Usando default.");
+            if (pantheonPrefabs.Length > 0) prefabToUse = pantheonPrefabs[0];
+            else return;
+        }
+        // ---------------------------
+
         var pInput = PlayerInput.Instantiate(
-            playerGamePrefab,
+            prefabToUse,
             controlScheme: null,
             pairWithDevice: device
         );
 
-        // Mover a la posición
         pInput.transform.position = position;
         pInput.transform.rotation = rotation;
-
-        // Poner nombre para identificarlo en jerarquía
         pInput.name = $"Player_{data.PlayerIndex + 1}_{data.Username}";
 
-        // Configurar CharacterBase
         var charBase = pInput.GetComponent<CharacterBase>();
         if (charBase != null)
         {
             charBase.SetPlayerInfo(data.PlayerIndex, data.Username);
-        }
-
-        // Configurar Apariencia
-        var appearance = pInput.GetComponent<PlayerAppearance>();
-        if (appearance != null)
-        {
-            appearance.ApplyOfflineAppearance(data.BodyIndex, data.EyesIndex, data.GlovesIndex);
         }
     }
 

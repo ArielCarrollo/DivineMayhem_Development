@@ -9,14 +9,16 @@ public class LocalPlayerData
 {
     public int PlayerIndex;
     public string Username;
+    public bool IsReady;
+
+    // --- NUEVO: Selección de Clase ---
+    public int PantheonIndex; // 0: Inka, 1: Griego, 2: Sintoísta, 3: Nórdico
+    // --------------------------------
+
+    public int MatchScore;
+    public int ScoreAtStartOfRound;
     public int Level;
     public int CurrentXP;
-    public bool IsReady;
-    public int MatchScore;          // Puntos Totales actuales
-    public int ScoreAtStartOfRound; // Puntos antes de jugar la ronda (Para animación)
-    public int BodyIndex;
-    public int EyesIndex;
-    public int GlovesIndex;
 }
 
 public class GameManager : MonoBehaviour
@@ -26,6 +28,12 @@ public class GameManager : MonoBehaviour
     [Header("Configuración de Partida")]
     public List<string> MinigameScenes;
 
+    [Header("Configuración de Panteones")]
+    // Nombres oficiales de las clases
+    public string[] PantheonNames = new string[] { "Panteón Inka", "Panteón Griego", "Panteón Sintoísta", "Panteón Nórdico" };
+    [Tooltip("Arrastra aquí las 4 imágenes en el mismo orden (Inka, Griego, Sinto, Nórdico)")]
+    public Sprite[] PantheonIcons; 
+
     [Header("Estado Actual")]
     public int TotalRounds = 5;
     public int CurrentRound = 0;
@@ -34,21 +42,26 @@ public class GameManager : MonoBehaviour
     public List<LocalPlayerData> LocalPlayers { get; private set; } = new List<LocalPlayerData>();
     private CinemachineImpulseSource impulseSource;
 
-    // Propiedad pública para saber si quedan juegos
     public bool HasNextMinigame => minigameQueue.Count > 0;
 
     private void Awake()
     {
-        if (Instance == null)
-        {
-            Instance = this;
-            DontDestroyOnLoad(gameObject);
-        }
+        if (Instance == null) { Instance = this; DontDestroyOnLoad(gameObject); }
         else Destroy(gameObject);
-        
         impulseSource = GetComponent<CinemachineImpulseSource>();
     }
 
+    public string GetPantheonName(int index)
+    {
+        if (index >= 0 && index < PantheonNames.Length) return PantheonNames[index];
+        return "Desconocido";
+    }
+    public Sprite GetPantheonIcon(int index)
+    {
+        if (PantheonIcons != null && index >= 0 && index < PantheonIcons.Length)
+            return PantheonIcons[index];
+        return null;
+    }
     public void SetPlayers(List<LocalPlayerData> players)
     {
         LocalPlayers = new List<LocalPlayerData>(players);

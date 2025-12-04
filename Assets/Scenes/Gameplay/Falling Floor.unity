@@ -11081,7 +11081,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 256f60073b0edb547a8407b164c62a7c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  playerGamePrefab: {fileID: 4777217671088863566, guid: 329da1f2c3e120348815e2118fd44b97, type: 3}
+  pantheonPrefabs:
+  - {fileID: 4777217671088863566, guid: b437549e749c9634894cde9585f76676, type: 3}
+  - {fileID: 4777217671088863566, guid: 329da1f2c3e120348815e2118fd44b97, type: 3}
+  - {fileID: 4777217671088863566, guid: ce7730d63598046478b2d9b1702c0668, type: 3}
+  - {fileID: 4777217671088863566, guid: ad45149583062d6469c42c7dffecec42, type: 3}
   spawnPoints:
   - {fileID: 53812214}
   - {fileID: 418857886}
