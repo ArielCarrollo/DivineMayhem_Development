@@ -116,6 +116,7 @@ public class LobbyUIManager : MonoBehaviour
     private string currentPrivateTargetPlayerId = null;
     private ulong currentPrivateTargetClientId = 0;
     private float _voiceUiRefreshTimer = 0f;
+    private const float VOICE_REFRESH_RATE = 0.1f;
     #endregion
 
     #region Initialization & Lifecycle
@@ -270,7 +271,7 @@ public class LobbyUIManager : MonoBehaviour
         }
 
         _voiceUiRefreshTimer += Time.unscaledDeltaTime;
-        if (_voiceUiRefreshTimer >= 0.5f)
+        if (_voiceUiRefreshTimer >= VOICE_REFRESH_RATE)
         {
             _voiceUiRefreshTimer = 0f;
             RefreshVoiceUI();
@@ -874,19 +875,30 @@ public class LobbyUIManager : MonoBehaviour
     #endregion
 
     #region Voice Logic
-    private void OnToggleMicClicked() { if (VivoxLobbyChatManager.Instance) { VivoxLobbyChatManager.Instance.ToggleMicMute(); RefreshVoiceUI(); } }
-    private void OnToggleDeafenClicked() { if (VivoxLobbyChatManager.Instance) { VivoxLobbyChatManager.Instance.ToggleDeafen(); RefreshVoiceUI(); } }
+    private void OnToggleMicClicked() { if (VivoxLobbyChatManager.Instance) { VivoxLobbyChatManager.Instance.ToggleMicMute(); } }
+    private void OnToggleDeafenClicked() { if (VivoxLobbyChatManager.Instance) { VivoxLobbyChatManager.Instance.ToggleDeafen(); } }
 
     private void RefreshVoiceUI()
     {
         var v = VivoxLobbyChatManager.Instance;
-        if (v == null || !v.IsLoggedIn)
+
+        // 1. Verificar si el Manager existe y si estamos Logueados en Vivox
+        bool isReady = v != null && v.IsLoggedIn;
+
+        // 2. Controlar interactividad de los botones
+        if (micToggleButton) micToggleButton.interactable = isReady;
+        if (deafenToggleButton) deafenToggleButton.interactable = isReady;
+
+        if (!isReady)
         {
-            if (micStateText) micStateText.text = "Mic: —";
-            if (deafenStateText) deafenStateText.text = "Audio: —";
+            if (micStateText) micStateText.text = "Mic: ...";
+            if (deafenStateText) deafenStateText.text = "Audio: ...";
+
+            // Opcional: Poner iconos en gris o estado default
             return;
         }
 
+        // 3. Obtener estados reales
         bool muted = v.IsMicMuted;
         bool deaf = v.IsDeafened;
 
