@@ -1,91 +1,131 @@
 using UnityEngine;
+using Unity.Netcode;
 
-/// <summary>
-/// Bola de pinchos que rebota en 3D (vista 2D ortogr�fica),
-/// aumenta su velocidad en cada rebote y da�a bloques/jugadores.
-/// </summary>
 [RequireComponent(typeof(Rigidbody))]
-[RequireComponent(typeof(SphereCollider))]
-public class SpikyBallHazard : MonoBehaviour
+public class SpikyBallHazard : NetworkBehaviour
 {
     [Header("Movimiento")]
-    [SerializeField] private float initialSpeed = 5f;
-    [SerializeField] private float speedIncreasePerBounce = 0.5f;
-    [SerializeField] private float maxSpeed = 15f;
-    [Tooltip("Direcci�n inicial en el plano XY.")]
-    [SerializeField] private Vector2 initialDirection = Vector2.right;
+    [SerializeField] private float initialSpeed = 8f;
+    [SerializeField] private float accelerationPerSecond = 2.0f;
+    [SerializeField] private float maxSpeed = 35f;
 
-    [Header("Da�o")]
-    [SerializeField] private int damageToPlayer = 1;
-    [SerializeField] private int damageToBlocksPerHit = 1;
+    [SerializeField] private float minAxisSpeedRatio = 0.3f;
 
     private Rigidbody rb;
-    private Vector3 lastVelocity;
+    private float currentSpeed;
+    private bool isLaunched = false;
 
     private void Awake()
     {
         rb = GetComponent<Rigidbody>();
-
-        // Para que se comporte como 2D:
+        // CORRECCIÓN: Congelar Z (profundidad) para que no caiga al vacío en un juego 2D
+        // y congelar rotaciones para que no afecten la trayectoria de forma rara.
         rb.constraints = RigidbodyConstraints.FreezePositionZ |
-                         RigidbodyConstraints.FreezeRotationX |
-                         RigidbodyConstraints.FreezeRotationY;
+                         RigidbodyConstraints.FreezeRotation;
     }
 
-    private void OnEnable()
+    public override void OnNetworkSpawn()
     {
-        StartHazard();
+        if (!IsServer)
+        {
+            rb.isKinematic = true;
+            enabled = false;
+        }
+        else
+        {
+            currentSpeed = initialSpeed;
+        }
     }
 
-    /// <summary>
-    /// Llamado al iniciar el modo. Tambi�n puedes llamarlo
-    /// manualmente desde tu GameManager de modos.
-    /// </summary>
-    public void StartHazard()
+    public void LaunchBall()
     {
-        Vector3 dir = new Vector3(initialDirection.x, initialDirection.y, 0f).normalized;
-        if (dir == Vector3.zero)
-            dir = Vector3.right;
+        if (!IsServer) return;
 
-        rb.linearVelocity = dir * initialSpeed;
+        isLaunched = true;
+        currentSpeed = initialSpeed;
+
+        // Lanzamiento diagonal en X e Y
+        float xDir = Random.Range(0, 2) == 0 ? 1 : -1;
+        float yDir = Random.Range(0, 2) == 0 ? 1 : -1;
+        Vector3 dir = new Vector3(xDir, yDir, 0).normalized;
+
+        rb.linearVelocity = dir * currentSpeed;
+    }
+
+    public void StopBall()
+    {
+        isLaunched = false;
+        rb.linearVelocity = Vector3.zero;
+        rb.isKinematic = true;
+    }
+
+    public void ResetSpeed()
+    {
+        if (!IsServer) return;
+        currentSpeed = initialSpeed;
+        if (rb.linearVelocity != Vector3.zero)
+            rb.linearVelocity = rb.linearVelocity.normalized * currentSpeed;
     }
 
     private void FixedUpdate()
     {
-        lastVelocity = rb.linearVelocity;
+        if (!IsServer || !isLaunched) return;
+
+        // 1. Aceleración
+        if (currentSpeed < maxSpeed)
+        {
+            currentSpeed += accelerationPerSecond * Time.fixedDeltaTime;
+        }
+
+        Vector3 velocity = rb.linearVelocity;
+
+        // 2. CORRECCIÓN "DVD" (Versión X/Y)
+        // Evitamos que se quede rebotando solo vertical u horizontalmente.
+        Vector3 dir = velocity.normalized;
+        bool corrected = false;
+
+        // Si X es muy lento (rebote vertical puro)
+        if (Mathf.Abs(dir.x) < minAxisSpeedRatio)
+        {
+            float sign = (dir.x == 0) ? (Random.Range(0, 2) == 0 ? 1 : -1) : Mathf.Sign(dir.x);
+            dir.x = sign * minAxisSpeedRatio;
+            corrected = true;
+        }
+
+        // Si Y es muy lento (rebote horizontal puro)
+        if (Mathf.Abs(dir.y) < minAxisSpeedRatio)
+        {
+            float sign = (dir.y == 0) ? (Random.Range(0, 2) == 0 ? 1 : -1) : Mathf.Sign(dir.y);
+            dir.y = sign * minAxisSpeedRatio;
+            corrected = true;
+        }
+
+        // Forzamos Z a 0 por seguridad
+        dir.z = 0;
+
+        if (corrected)
+        {
+            dir = dir.normalized;
+        }
+
+        rb.linearVelocity = dir * currentSpeed;
     }
 
     private void OnCollisionEnter(Collision collision)
     {
-        if (collision.contactCount == 0)
-            return;
+        if (!IsServer) return;
 
-        // 1) Rebote con reflexi�n y aumento de velocidad
-        Vector3 normal = collision.contacts[0].normal;
-
-        float currentSpeed = lastVelocity.magnitude;
-        float newSpeed = Mathf.Clamp(currentSpeed + speedIncreasePerBounce, 0.1f, maxSpeed);
-
-        Vector3 dir = Vector3.Reflect(lastVelocity.normalized, normal);
-
-        // Forzar que se quede en el plano XY
-        dir.z = 0f;
-        dir.Normalize();
-
-        rb.linearVelocity = dir * newSpeed;
-
-        // 2) Da�o a bloques destruibles
-        var health = collision.collider.GetComponentInParent<DestructibleHealth>();
-        if (health != null)
+        if (collision.gameObject.TryGetComponent<CharacterBase>(out CharacterBase player))
         {
-            health.TakeHit(damageToBlocksPerHit, transform.position);
+            if (CrazyBallGameManager.Instance != null)
+            {
+                CrazyBallGameManager.Instance.OnPlayerEliminated(player);
+            }
         }
 
-        // 3) Da�o a jugadores (u otros objetos da�ables)
-        //var damageable = collision.collider.GetComponentInParent<IDamageable>();
-        //if (damageable != null)
-        //{
-        //    damageable.TakeDamage(damageToPlayer);
-        //}
+        if (collision.gameObject.TryGetComponent<DestructibleHealth>(out DestructibleHealth block))
+        {
+            block.TakeHit(10, transform.position);
+        }
     }
 }

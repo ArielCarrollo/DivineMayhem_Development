@@ -151,21 +151,24 @@ public class RelayLobbyConnector : MonoBehaviour
             };
 
             _currentLobby = await LobbyService.Instance.CreateLobbyAsync(lobbyName, maxPlayers, createOptions);
-            StartHeartbeat();
+
+            // --- CAMBIO AQUÍ ---
+            // En vez de StartHeartbeat() local, se lo pasamos al GameManager que spawneamos
 
             NetworkManager.Singleton.StartHost();
 
             if (gameManagerPrefab != null)
             {
-                var gm = Instantiate(gameManagerPrefab);
-                var no = gm.GetComponent<NetworkObject>();
-                no.Spawn(); 
-            }
-            else
-            {
-                Debug.LogError("gameManagerPrefab no está asignado en el Inspector!");
-                SetStatus("Error: Prefab de GameManager no encontrado.");
-                return;
+                var gmObj = Instantiate(gameManagerPrefab);
+                var gmNet = gmObj.GetComponent<GameManager>(); // Obtener componente antes de spawnear si es posible
+                var no = gmObj.GetComponent<NetworkObject>();
+                no.Spawn();
+
+                // Pasarle el ID del lobby para que lo mantenga vivo
+                if (GameManager.Instance != null)
+                {
+                    GameManager.Instance.StartLobbyHeartbeat(_currentLobby.Id);
+                }
             }
 
             SetStatus($"Lobby creado! Código: {_currentLobby.LobbyCode}");
@@ -474,6 +477,13 @@ public class RelayLobbyConnector : MonoBehaviour
             SetStatus("Desconectado.");
             _currentLobby = null;
             StopHeartbeat();
+
+            // Reiniciar el transporte para olvidar la IP vieja
+            var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
+            if (transport != null)
+            {
+                transport.SetConnectionData("127.0.0.1", 7777); // Resetear a default
+            }
 
             if (UiGameManager.Instance != null)
             {

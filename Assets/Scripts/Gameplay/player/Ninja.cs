@@ -41,13 +41,13 @@ public class Ninja : CharacterBase
             // shuriken.GetComponent<NetworkObject>().Spawn(true);
         }
     }
-    [ServerRpc]
-    protected override void UltimateAttackServerRpc()
-    {
-        // 'base.UltimateAttackServerRpc();' // No llamamos al padre (está vacío)
+    //[ServerRpc]
+    //protected override void UltimateAttackServerRpc()
+    //{
+    //    // 'base.UltimateAttackServerRpc();' // No llamamos al padre (está vacío)
 
-        Debug.Log("SERVIDOR: ¡¡¡ULTI DE NINJA: 'Kage Bunshin no Jutsu'!!!");
-        // Aquí iría la lógica de la ulti del ninja
-        // (Crear clones, volverse invisible, etc.)
-    }
+    //    Debug.Log("SERVIDOR: ¡¡¡ULTI DE NINJA: 'Kage Bunshin no Jutsu'!!!");
+    //    // Aquí iría la lógica de la ulti del ninja
+    //    // (Crear clones, volverse invisible, etc.)
+    //}
 }

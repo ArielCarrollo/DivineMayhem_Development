@@ -1,8 +1,10 @@
-using UnityEngine;
-using Unity.Netcode;
-using TMPro;
-using UnityEngine.UI;
 using System.Reflection;
+using TMPro;
+using Unity.Netcode;
+using Unity.Services.Authentication;
+using Unity.Services.Core;
+using UnityEngine;
+using UnityEngine.UI;
 
 public class UiGameManager : MonoBehaviour
 {
@@ -83,11 +85,47 @@ public class UiGameManager : MonoBehaviour
         if (continueAnonymousButton != null)
             continueAnonymousButton.onClick.AddListener(OnContinueAnonymousClicked);
 
-        loginPanel.SetActive(true);
-        registerPanel.SetActive(false);
-        errorText.gameObject.SetActive(false);
-        if (lobbySelectionPanel) lobbySelectionPanel.SetActive(false);
-        if (lobbiesPanel) lobbiesPanel.SetActive(false);
+        // --- LÓGICA DE AUTO-LOBBY AL VOLVER DE PARTIDA ---
+
+        // 1. Verificar si Unity Services está inicializado y estamos autenticados
+        bool isAuthenticated = false;
+        try
+        {
+            if (UnityServices.State == ServicesInitializationState.Initialized &&
+                AuthenticationService.Instance.IsSignedIn)
+            {
+                isAuthenticated = true;
+            }
+        }
+        catch { isAuthenticated = false; }
+
+        // 2. Verificar si estamos conectados a Netcode (volvemos de una partida)
+        bool isNetcodeConnected = NetworkManager.Singleton != null &&
+                                  (NetworkManager.Singleton.IsConnectedClient || NetworkManager.Singleton.IsHost);
+
+        if (isAuthenticated && isNetcodeConnected)
+        {
+            // CASO: Volvemos de la partida al Lobby
+            Debug.Log("UiGameManager: Retorno detectado. Saltando login e yendo al Lobby.");
+
+            // Ocultamos paneles de login
+            loginPanel.SetActive(false);
+            registerPanel.SetActive(false);
+            loginRootPanel.SetActive(false);
+
+            // Vamos directo al Lobby UI
+            // IMPORTANTE: Asegúrate de que GoToLobby() active el lobbyUIManager.Initialize()
+            GoToLobby();
+        }
+        else
+        {
+            // CASO: Inicio normal del juego
+            loginPanel.SetActive(true);
+            registerPanel.SetActive(false);
+            errorText.gameObject.SetActive(false);
+            if (lobbySelectionPanel) lobbySelectionPanel.SetActive(false);
+            if (lobbiesPanel) lobbiesPanel.SetActive(false);
+        }
     }
 
     private async void OnLoginClicked()

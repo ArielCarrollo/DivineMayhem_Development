@@ -72,15 +72,23 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   ShowTopMostFoldoutHeaderGroup: 1
-  playerPrefab: {fileID: 4407747363217498156, guid: 329da1f2c3e120348815e2118fd44b97, type: 3}
+  pantheonPrefabs:
+  - {fileID: 8741094267056336468, guid: 329da1f2c3e120348815e2118fd44b97, type: 3}
+  - {fileID: 8741094267056336468, guid: 137e4d7771d4a5b4da72cc78d5c0d579, type: 3}
+  - {fileID: 8741094267056336468, guid: 7f0ba17d67aa12f409721a84460c0fe2, type: 3}
+  - {fileID: 8741094267056336468, guid: ae5f66d104890dc4fb1983e5dfe3e327, type: 3}
+  lobbySceneName: Login
+  intermissionSceneName: Intermission
   availableMapNames:
   - Crown Catching
   - Falling Floor
   - Crazy Ball
+  TotalRounds:
+    m_InternalValue: 3
+  CurrentRound:
+    m_InternalValue: 1
   currentMapIndex:
     m_InternalValue: 0
-  baseXpToLevelUp: 100
-  xpMultiplierPerLevel: 1.2
 --- !u!114 &3113148977895192487
 MonoBehaviour:
   m_ObjectHideFlags: 0

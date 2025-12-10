@@ -1,93 +1,161 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using System.Collections;
+using System.Collections.Generic;
 using Unity.Netcode;
+using UnityEngine.SceneManagement;
 
-public class IntermissionUI : MonoBehaviour
+[RequireComponent(typeof(NetworkObject))]
+public class IntermissionUI : NetworkBehaviour
 {
     [Header("Referencias UI")]
-    [SerializeField] private TextMeshProUGUI rankingText;
-    [SerializeField] private Button readyButton;
-    [SerializeField] private TextMeshProUGUI statusText;
-    [SerializeField] private TextMeshProUGUI buttonText;
+    [SerializeField] private TextMeshProUGUI roundTitleText;
+    [SerializeField] private Transform rowsContainer;
+    [SerializeField] private GameObject rowPrefab;
 
-    private bool isReady = false;
+    [Header("Pantalla Ganador")]
+    [SerializeField] private GameObject winnerPanel;
+    [SerializeField] private TextMeshProUGUI winnerNameText;
+    [SerializeField] private Image winnerIcon; // <--- NUEVO: Icono del ganador
 
-    private void OnEnable()
+    [Header("Configuración")]
+    [SerializeField] private float timeBeforeNextRound = 5f;
+
+    [Header("Info Rondas")]
+    [SerializeField] private TextMeshProUGUI roundInfoText;
+
+    [Header("Sprites de Panteones")]
+    [Tooltip("Orden: 0:Inca, 1:Shinto, 2:Greek, 3:Norse. Debe coincidir con el Lobby.")]
+    [SerializeField] private Sprite[] pantheonSprites; // <--- NUEVO: Sprites para mostrar
+
+    private readonly string[] pantheonNames = { "Inca", "Shinto", "Greek", "Norse" };
+
+    public override void OnNetworkSpawn()
     {
-        UpdateRankingDisplay();
-
-        readyButton.interactable = true;
-        readyButton.onClick.AddListener(OnReadyClicked);
-        isReady = false;
-        if (buttonText) buttonText.text = "¡LISTO!";
-        if (statusText) statusText.text = "¡Presiona LISTO para continuar!";
-        if (GlobalGameManager.Instance != null)
-        {
-            // 1. Mostrar lo que haya inmediatamente (por si ya llegó la data)
-            UpdateRankingDisplay();
-
-            // 2. Suscribirse para actualizar si la data llega después
-            // Nos suscribimos al evento OnListChanged de la lista global
-            GlobalGameManager.Instance.GlobalScores.OnListChanged += OnGlobalScoresChanged;
-        }
+        StartCoroutine(DisplayResultsRoutine());
     }
 
-    private void OnDisable()
+    private IEnumerator DisplayResultsRoutine()
     {
-        readyButton.onClick.RemoveListener(OnReadyClicked);
-        if (GlobalGameManager.Instance != null)
+        yield return null;
+
+        if (GameManager.Instance == null) yield break;
+
+        if (roundInfoText != null)
         {
-            GlobalGameManager.Instance.GlobalScores.OnListChanged -= OnGlobalScoresChanged;
+            int cur = GameManager.Instance.CurrentRound.Value;
+            int tot = GameManager.Instance.TotalRounds.Value;
+            roundInfoText.text = $"ROUND {cur} / {tot}";
         }
 
-    }
-    private void OnGlobalScoresChanged(NetworkListEvent<PlayerScore> changeEvent)
-    {
-        UpdateRankingDisplay();
-    }
-    private void UpdateRankingDisplay()
-    {
-        if (GlobalGameManager.Instance == null || rankingText == null) return;
+        if (rowsContainer != null) foreach (Transform child in rowsContainer) Destroy(child.gameObject);
+        if (winnerPanel != null) winnerPanel.SetActive(false);
+        if (roundTitleText != null) roundTitleText.text = "RESULTS";
 
-        string ranking = "RANKING GLOBAL:\n\n";
+        var sortedPlayers = new List<PlayerData>();
+        foreach (var p in GameManager.Instance.PlayersInLobby) sortedPlayers.Add(p);
+        sortedPlayers.Sort((a, b) => b.Points.CompareTo(a.Points));
 
-        if (GlobalGameManager.Instance.GlobalScores.Count == 0)
+        float delay = 0.2f;
+        foreach (var p in sortedPlayers)
         {
-            ranking += "Cargando puntajes...";
-        }
-        else
-        {
-            // Recorremos la lista y la mostramos
-            foreach (var score in GlobalGameManager.Instance.GlobalScores)
+            if (rowPrefab != null && rowsContainer != null)
             {
-                ranking += $"Player {score.PlayerId}: {score.Score} Pts\n";
+                GameObject go = Instantiate(rowPrefab, rowsContainer);
+                var rowScript = go.GetComponent<IntermissionPlayerRow>();
+
+                if (rowScript != null)
+                {
+                    string pName = (p.PantheonIndex >= 0 && p.PantheonIndex < pantheonNames.Length)
+                        ? pantheonNames[p.PantheonIndex] : "Unknown";
+                    Color col = GetColor((int)p.ClientId);
+
+                    rowScript.Setup(p.Username.ToString(), p.Points, p.LastAddedPoints, col, pName);
+
+                    rowScript.AnimateEntrance(delay);
+                    rowScript.AnimateScore(p.Points - p.LastAddedPoints, p.Points, delay + 0.5f);
+                }
+            }
+            delay += 0.2f;
+        }
+
+        yield return new WaitForSeconds(timeBeforeNextRound);
+
+        if (IsServer)
+        {
+            int curRound = GameManager.Instance.CurrentRound.Value;
+            int totalRounds = GameManager.Instance.TotalRounds.Value;
+
+            if (curRound >= totalRounds)
+            {
+                ulong winnerId = sortedPlayers.Count > 0 ? sortedPlayers[0].ClientId : 999;
+                ShowFinalWinnerClientRpc(winnerId);
+                yield return new WaitForSeconds(5f);
+            }
+
+            GameManager.Instance.AdvanceRoundOrFinish();
+        }
+    }
+
+    [ClientRpc]
+    private void ShowFinalWinnerClientRpc(ulong winnerId)
+    {
+        string winnerName = "Unknown";
+        Color col = Color.white;
+        string pName = "";
+        int pIndex = -1;
+
+        if (GameManager.Instance != null)
+        {
+            foreach (var p in GameManager.Instance.PlayersInLobby)
+            {
+                if (p.ClientId == winnerId)
+                {
+                    winnerName = p.Username.ToString();
+                    col = GetColor((int)winnerId);
+                    pIndex = p.PantheonIndex;
+                    if (p.PantheonIndex >= 0 && p.PantheonIndex < pantheonNames.Length)
+                        pName = pantheonNames[p.PantheonIndex];
+                    break;
+                }
             }
         }
 
-        rankingText.text = ranking;
-        rankingText.SetAllDirty();
-    }
-    public void UpdateReadyCount(int current, int total)
-    {
-        if (buttonText != null)
+        if (winnerPanel != null)
         {
-            // Ejemplo: "Esperando... (1/3)"
-            buttonText.text = $"Esperando... ({current}/{total})";
+            winnerPanel.SetActive(true);
+            if (winnerNameText != null)
+            {
+                winnerNameText.text = $"¡VICTORY OF PANTHEON {pName.ToUpper()}!\n{winnerName}";
+                winnerNameText.color = col;
+            }
+
+            // --- MOSTRAR ICONO ---
+            if (winnerIcon != null)
+            {
+                if (pantheonSprites != null && pIndex >= 0 && pIndex < pantheonSprites.Length)
+                {
+                    winnerIcon.sprite = pantheonSprites[pIndex];
+                    winnerIcon.gameObject.SetActive(true);
+                }
+                else
+                {
+                    winnerIcon.gameObject.SetActive(false);
+                }
+            }
         }
     }
-    private void OnReadyClicked()
-    {
-        if (isReady) return;
 
-        isReady = true;
-        readyButton.interactable = false; // Desactivar para no spamear
-        if (statusText) statusText.text = "Esperando a los demás...";
-        if (buttonText) buttonText.text = "Enviando...";
-        // Avisamos al MinigameManager que estamos listos
-        if (MinigameManager.Instance != null)
+    private Color GetColor(int index)
+    {
+        switch (index % 4)
         {
-            MinigameManager.Instance.ClientIsReady();
+            case 0: return Color.blue;
+            case 1: return Color.red;
+            case 2: return Color.green;
+            case 3: return Color.yellow;
+            default: return Color.white;
         }
     }
 }

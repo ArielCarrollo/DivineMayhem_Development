@@ -1,62 +1,106 @@
 using System.Collections;
 using UnityEngine;
+using Unity.Netcode;
 
-// pon este script a cada "nube" (objeto 3D con collider)
-public class CloudPlatformRespawn : MonoBehaviour
+[RequireComponent(typeof(NetworkObject))]
+public class CloudPlatformRespawn : NetworkBehaviour
 {
-    [SerializeField] private string tagMismoTipo = "Cloud";
-    [SerializeField] private float tiempoReaparicion = 5f;
+    [Header("Configuración")]
+    [SerializeField] private float tiempoSoporte = 3.0f; // Tiempo antes de caer
+    [SerializeField] private float tiempoTemblor = 1.0f; // Cuánto tiempo tiembla antes de desaparecer (parte de los 3s)
+    [SerializeField] private float tiempoRespawn = 5.0f; // Tiempo para volver a aparecer
+    [SerializeField] private float intensidadTemblor = 0.1f;
+
+    [Header("Referencias Visuales")]
+    [SerializeField] private Renderer meshRenderer;
+    [SerializeField] private Collider platformCollider;
 
     private Vector3 posInicial;
-    private Quaternion rotInicial;
-    private Collider col;
-    private Renderer[] rends;
-    private bool ocupada;
+    private bool isOccupied = false;
 
     private void Awake()
     {
         posInicial = transform.position;
-        rotInicial = transform.rotation;
-        col = GetComponent<Collider>();
-        rends = GetComponentsInChildren<Renderer>();
+        if (meshRenderer == null) meshRenderer = GetComponent<Renderer>();
+        if (platformCollider == null) platformCollider = GetComponent<Collider>();
     }
 
     private void OnCollisionEnter(Collision other)
     {
-        ProbarDesaparecer(other.collider);
+        // Solo el servidor decide cuándo se activa la plataforma
+        if (!IsServer) return;
+
+        if (isOccupied) return;
+
+        // Verificar si es un jugador
+        if (other.gameObject.CompareTag("Player"))
+        {
+            StartCoroutine(PlatformSequence());
+        }
     }
 
-    private void OnTriggerEnter(Collider other)
+    private IEnumerator PlatformSequence()
     {
-        ProbarDesaparecer(other);
+        isOccupied = true;
+
+        // 1. Tiempo de soporte estable
+        float tiempoEstable = tiempoSoporte - tiempoTemblor;
+        if (tiempoEstable > 0)
+            yield return new WaitForSeconds(tiempoEstable);
+
+        // 2. Avisar a todos los clientes que tiemblen (Visual)
+        TriggerShakeClientRpc();
+
+        // Esperar el tiempo de temblor
+        yield return new WaitForSeconds(tiempoTemblor);
+
+        // 3. Desaparecer (Lógica y Visual)
+        TogglePlatform(false);
+        TogglePlatformClientRpc(false);
+
+        // 4. Esperar Respawn
+        yield return new WaitForSeconds(tiempoRespawn);
+
+        // 5. Reaparecer
+        TogglePlatform(true);
+        TogglePlatformClientRpc(true);
+
+        isOccupied = false;
     }
 
-    private void ProbarDesaparecer(Collider other)
+    // Sincroniza la activación/desactivación visual y física
+    [ClientRpc]
+    private void TogglePlatformClientRpc(bool active)
     {
-        if (ocupada) return;
-        if (other.isTrigger) return;
-        if (other.CompareTag(tagMismoTipo)) return; // si es otra nube, no pasa nada
-
-        StartCoroutine(DesaparecerYVolver());
+        if (IsServer) return; // El servidor ya lo hizo localmente en TogglePlatform
+        TogglePlatform(active);
     }
 
-    private IEnumerator DesaparecerYVolver()
+    private void TogglePlatform(bool active)
     {
-        ocupada = true;
+        if (meshRenderer != null) meshRenderer.enabled = active;
+        if (platformCollider != null) platformCollider.enabled = active;
 
-        // ocultar
-        if (col) col.enabled = false;
-        foreach (var r in rends) r.enabled = false;
+        // Resetear posición al reaparecer para quitar el offset del temblor
+        if (active) transform.position = posInicial;
+    }
 
-        yield return new WaitForSeconds(tiempoReaparicion);
+    // Efecto visual de temblor solo en clientes
+    [ClientRpc]
+    private void TriggerShakeClientRpc()
+    {
+        StartCoroutine(ShakeRoutine());
+    }
 
-        // volver a su sitio
+    private IEnumerator ShakeRoutine()
+    {
+        float timer = 0;
+        while (timer < tiempoTemblor)
+        {
+            transform.position = posInicial + Random.insideUnitSphere * intensidadTemblor;
+            timer += Time.deltaTime;
+            yield return null;
+        }
         transform.position = posInicial;
-        transform.rotation = rotInicial;
-
-        foreach (var r in rends) r.enabled = true;
-        if (col) col.enabled = true;
-
-        ocupada = false;
     }
 }

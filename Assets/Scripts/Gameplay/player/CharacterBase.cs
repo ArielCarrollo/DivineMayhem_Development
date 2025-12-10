@@ -13,298 +13,183 @@ public enum PlayerState
 
 [RequireComponent(typeof(Rigidbody))]
 [RequireComponent(typeof(NetworkTransform))]
-[RequireComponent(typeof(NetworkAnimator))]
 public abstract class CharacterBase : NetworkBehaviour
 {
-    [Header("Stats Base del Personaje")]
+    [Header("Stats Base")]
     [SerializeField] protected float velocidad = 8f;
-    [SerializeField] protected int vidaMaxima = 100;
-    [SerializeField] protected int fuerzaBase = 10;
-    [SerializeField] protected int nivelBase = 1;
     [SerializeField] protected float estaminaMaxima = 100f;
 
-    [Header("Fluidez de Movimiento (Physics)")]
+    [Header("Fluidez de Movimiento")]
     [SerializeField] private float acceleration = 60f;
     [SerializeField] private float deceleration = 40f;
     [SerializeField] private float airControlMultiplier = 0.5f;
     [SerializeField] private float fallMultiplier = 2.5f;
+    [SerializeField] private float rotationSpeed = 20f;
 
-    [Header("Lógica de Estamina")]
-    [SerializeField] private float staminaChargeRate = 20f;
-    private Coroutine chargingCoroutine;
+    [Header("Mecánicas Globales (Inactividad/Empuje)")]
+    [SerializeField] private float maxInactivityTime = 5f;
+    [SerializeField] private float pushCooldown = 3f;
 
-    [Header("Lógica de Movimiento y Giro")]
-    [SerializeField, Tooltip("Velocidad base de giro. El script la multiplica para dar el efecto rápido.")]
-    private float rotationSpeed = 20f;
+    // Sincronizamos estos valores para que el HUD los vea
+    public NetworkVariable<float> InactivityTimer = new NetworkVariable<float>();
+    public NetworkVariable<float> PushTimer = new NetworkVariable<float>();
 
-    [Header("Lógica de Salto")]
-    [SerializeField] private float jumpForce = 15f;
-    [SerializeField] private Transform groundCheck;
-    [SerializeField] private LayerMask groundMask;
-    [SerializeField] private float groundDistance = 0.3f;
+    public float MaxInactivityTime => maxInactivityTime;
+    public float PushCooldown => pushCooldown;
 
-    [Header("Configuración de Minijuego")]
+    [Header("Visuales")]
     [SerializeField] private GameObject crownVisual;
 
-    [Header("Componentes")]
-    protected Rigidbody rb;
-    protected Animator animator;
-
-    [Header("Lógica de Ataque Básico")]
+    [Header("Combate")]
     [SerializeField] private Transform hitPoint;
     [SerializeField] private float hitRadius = 0.5f;
     [SerializeField] private float punchForce = 15f;
     [SerializeField] private LayerMask hitableLayers;
     [SerializeField] private float attackDelay = 0.1f;
     [SerializeField] private float attackCooldown = 0.5f;
-    private float nextAttackTime = 0f;
-
-    [Header("Lógica de Knockback")]
     [SerializeField] private float knockbackDuration = 0.5f;
     [SerializeField] private float verticalKnockup = 7f;
 
-    // Network Variables
+    // --- Network Variables ---
     public NetworkVariable<bool> IsKing = new NetworkVariable<bool>(false);
     public NetworkVariable<PlayerState> CurrentState = new NetworkVariable<PlayerState>(PlayerState.Normal);
-    public NetworkVariable<int> Vida = new NetworkVariable<int>();
-    public NetworkVariable<int> Fuerza = new NetworkVariable<int>();
-    public NetworkVariable<int> Nivel = new NetworkVariable<int>();
     public NetworkVariable<float> Estamina = new NetworkVariable<float>();
 
-    private bool controlsEnabled = true;
-    public float EstaminaMaxima { get { return estaminaMaxima; } }
+    // Identificador para el HUD (usamos OwnerClientId)
+    public int PlayerIndex => (int)OwnerClientId;
 
-    private float serverMoveInput;
-    private bool serverIsGrounded;
+    protected Rigidbody rb;
+    protected Animator animator;
+    private PlayerInput playerInput; // Si usas Input System
+
+    // Inputs locales
     private float clientMoveInput;
+    private bool controlsEnabled = true;
+    private float nextAttackTime = 0f;
+
+    [Header("Ground Check")]
+    [SerializeField] private Transform groundCheck;
+    [SerializeField] private float groundDistance = 0.2f;
+    [SerializeField] private LayerMask groundMask;
+    private bool isGrounded;
+    private float serverMoveInput;
+
+    // Hashes animador
+    private static readonly int AnimSpeed = Animator.StringToHash("Speed");
+    private static readonly int AnimJump = Animator.StringToHash("Jump");
+    private static readonly int AnimAttack = Animator.StringToHash("NormalAttack");
+    private static readonly int AnimGrounded = Animator.StringToHash("IsGrounded");
 
     protected virtual void Awake()
     {
         rb = GetComponent<Rigidbody>();
         animator = GetComponent<Animator>();
+        playerInput = GetComponent<PlayerInput>();
 
-        // --- CORRECCIÓN FÍSICA Y SINTAXIS ---
-        // Usamos 'PhysicsMaterial' (con s) que es la versión correcta en Unity moderno.
         PhysicsMaterial slipperyMat = new PhysicsMaterial("PersonajeResbaladizo");
         slipperyMat.dynamicFriction = 0f;
         slipperyMat.staticFriction = 0f;
         slipperyMat.frictionCombine = PhysicsMaterialCombine.Minimum;
         slipperyMat.bounceCombine = PhysicsMaterialCombine.Minimum;
-
-        if (TryGetComponent<Collider>(out Collider col))
-        {
-            col.material = slipperyMat;
-        }
+        if (TryGetComponent<Collider>(out Collider col)) col.material = slipperyMat;
 
         rb.constraints = RigidbodyConstraints.FreezePositionZ | RigidbodyConstraints.FreezeRotation;
         rb.interpolation = RigidbodyInterpolation.Interpolate;
         rb.collisionDetectionMode = CollisionDetectionMode.Continuous;
+
+        if (groundCheck == null)
+        {
+            GameObject gc = new GameObject("GroundCheck_Auto");
+            gc.transform.parent = transform;
+            gc.transform.localPosition = new Vector3(0, 0.05f, 0);
+            groundCheck = gc.transform;
+        }
     }
 
     public override void OnNetworkSpawn()
     {
-        base.OnNetworkSpawn();
-        SetInputActive(true);
-        transform.rotation = Quaternion.Euler(0, 90, 0);
-
         if (IsServer)
         {
-            Vida.Value = vidaMaxima;
-            Fuerza.Value = fuerzaBase;
-            Nivel.Value = nivelBase;
             Estamina.Value = estaminaMaxima;
+            InactivityTimer.Value = maxInactivityTime;
+            PushTimer.Value = 0f;
         }
 
-        StartCoroutine(WaitForManagersAndRegister());
         IsKing.OnValueChanged += OnKingStatusChanged;
         OnKingStatusChanged(false, IsKing.Value);
+
+        // Registro en los managers (usando tu lógica existente)
+        StartCoroutine(RegisterWithManagers());
     }
 
     public override void OnNetworkDespawn()
     {
-        base.OnNetworkDespawn();
-        StartCoroutine(RegisterWithDelay());
-        if (UIManager.Instance != null) UIManager.Instance.UnregisterPlayer(this);
-        if (MinigameManager.Instance != null) MinigameManager.Instance.UnregisterPlayer(this);
         IsKing.OnValueChanged -= OnKingStatusChanged;
     }
 
-    private IEnumerator WaitForManagersAndRegister()
+    private IEnumerator RegisterWithManagers()
     {
-        while (UIManager.Instance == null) yield return null;
-        UIManager.Instance.RegisterPlayer(this);
-
-        while (MinigameManager.Instance == null && SurvivalGameManager.Instance == null) yield return null;
-
-        if (MinigameManager.Instance != null) MinigameManager.Instance.RegisterPlayer(this);
-        else if (SurvivalGameManager.Instance != null) SurvivalGameManager.Instance.RegisterPlayer(this);
-    }
-
-    private IEnumerator RegisterWithDelay()
-    {
-        yield return null;
+        yield return new WaitForSeconds(0.5f); // Pequeña espera para asegurar que los Singletons existan
         if (IsServer)
         {
-            if (MinigameManager.Instance != null) MinigameManager.Instance.RegisterPlayer(this);
-        }
-        if (UIManager.Instance != null) UIManager.Instance.RegisterPlayer(this);
-    }
-
-    [ClientRpc]
-    public void TeleportPlayerClientRpc(Vector3 newPosition)
-    {
-        if (rb != null)
-        {
-            rb.isKinematic = true;
-            rb.linearVelocity = Vector3.zero;
-            rb.angularVelocity = Vector3.zero;
-        }
-        transform.position = newPosition;
-        transform.rotation = Quaternion.Euler(0, 90, 0);
-        if (rb != null) rb.isKinematic = false;
-        SetInputActive(true);
-        if (animator) animator.Play("Idle");
-    }
-
-    public void ServerTeleport(Vector3 newPosition)
-    {
-        CurrentState.Value = PlayerState.Normal;
-        IsKing.Value = false;
-        TeleportPlayerClientRpc(newPosition);
-    }
-
-    [ClientRpc]
-    public void KillPlayerClientRpc()
-    {
-        SetInputActive(false);
-        GetComponent<Collider>().enabled = false;
-        rb.isKinematic = true;
-    }
-
-    private void OnKingStatusChanged(bool previousValue, bool newValue)
-    {
-        if (crownVisual != null) crownVisual.SetActive(newValue);
-    }
-
-    public void SetInputActive(bool isActive)
-    {
-        controlsEnabled = isActive;
-        if (!isActive && rb != null)
-        {
-            rb.linearVelocity = Vector3.zero;
-            serverMoveInput = 0;
-            if (animator) animator.SetFloat("Speed", 0);
+            if (CrownGameManagerNetcode.Instance != null) CrownGameManagerNetcode.Instance.RegisterPlayer(this);
+            // Agrega aquí otros managers si es necesario
         }
     }
 
-    // --- INPUT HANDLERS ---
-    public virtual void OnMove(InputAction.CallbackContext context)
+    private void OnKingStatusChanged(bool prev, bool current)
     {
-        if (!IsOwner || CurrentState.Value != PlayerState.Normal || !controlsEnabled)
-        {
-            clientMoveInput = 0;
-            return;
-        }
-        clientMoveInput = context.ReadValue<float>();
+        if (crownVisual != null) crownVisual.SetActive(current);
     }
 
-    public virtual void OnJump(InputAction.CallbackContext context)
+    public void SetInputActive(bool active)
     {
-        if (!IsOwner || CurrentState.Value != PlayerState.Normal || !controlsEnabled) return;
+        controlsEnabled = active;
+        if (!active && rb != null) rb.linearVelocity = Vector3.zero;
+    }
+
+    // ---------------- INPUT (CLIENTE) ----------------
+    // Asumiendo que usas PlayerInput component y Invoke Unity Events o Send Messages
+    public void OnMove(InputAction.CallbackContext context)
+    {
+        if (!IsOwner || !controlsEnabled) { clientMoveInput = 0; return; }
+        Vector2 input = context.ReadValue<Vector2>();
+        clientMoveInput = input.x;
+    }
+
+    public void OnJump(InputAction.CallbackContext context)
+    {
+        if (!IsOwner || !controlsEnabled) return;
         if (context.performed) JumpServerRpc();
     }
 
-    public virtual void OnNormalAttack(InputAction.CallbackContext context)
+    public void OnNormalAttack(InputAction.CallbackContext context)
     {
-        if (!IsOwner || CurrentState.Value != PlayerState.Normal || !controlsEnabled) return;
+        if (!IsOwner || !controlsEnabled) return;
         if (context.performed) NormalAttackServerRpc();
     }
 
-    public virtual void OnUltimateAttack(InputAction.CallbackContext context)
-    {
-        if (!IsOwner || CurrentState.Value != PlayerState.Normal || !controlsEnabled) return;
-        if (context.performed) UltimateAttackServerRpc();
-    }
-
-    public virtual void OnCharge(InputAction.CallbackContext context)
-    {
-        if (!IsOwner || CurrentState.Value == PlayerState.Knockback || !controlsEnabled) return;
-        if (context.performed) ChargeStaminaServerRpc(true);
-        else if (context.canceled) ChargeStaminaServerRpc(false);
-    }
-
-    // --- RPCS ---
-    [Rpc(SendTo.Server)]
-    protected virtual void UpdateServerMovementRpc(float moveInput)
-    {
-        this.serverMoveInput = moveInput;
-    }
-
-    [Rpc(SendTo.Server)]
-    protected virtual void JumpServerRpc()
-    {
-        if (serverIsGrounded)
-        {
-            rb.linearVelocity = new Vector3(rb.linearVelocity.x, 0, 0);
-            rb.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
-            animator.SetTrigger("Jump");
-        }
-    }
-
-    [Rpc(SendTo.Server)]
-    protected virtual void NormalAttackServerRpc()
-    {
-        if (Time.time < nextAttackTime) return;
-        nextAttackTime = Time.time + attackCooldown;
-        animator.SetTrigger("NormalAttack");
-        StartCoroutine(HitCheckDelay());
-    }
-
-    [Rpc(SendTo.Server)]
-    protected virtual void UltimateAttackServerRpc() { }
-
-    [Rpc(SendTo.Server)]
-    protected virtual void ChargeStaminaServerRpc(bool startCharging)
-    {
-        if (startCharging && CurrentState.Value == PlayerState.Normal)
-        {
-            CurrentState.Value = PlayerState.Charging;
-            chargingCoroutine = StartCoroutine(ChargeStaminaCoroutine());
-        }
-        else if (!startCharging || CurrentState.Value != PlayerState.Charging)
-        {
-            CurrentState.Value = PlayerState.Normal;
-            if (chargingCoroutine != null)
-            {
-                StopCoroutine(chargingCoroutine);
-                chargingCoroutine = null;
-            }
-        }
-    }
-
-    private IEnumerator ChargeStaminaCoroutine()
-    {
-        while (Estamina.Value < estaminaMaxima)
-        {
-            Estamina.Value += staminaChargeRate * Time.deltaTime;
-            Estamina.Value = Mathf.Clamp(Estamina.Value, 0, estaminaMaxima);
-            yield return null;
-        }
-        CurrentState.Value = PlayerState.Normal;
-        chargingCoroutine = null;
-    }
+    // ---------------- LÓGICA SERVIDOR ----------------
 
     protected virtual void Update()
     {
-        if (!IsOwner) return;
-        UpdateServerMovementRpc(clientMoveInput);
+        if (IsOwner)
+        {
+            // Enviamos input de movimiento al servidor constantemente
+            UpdateMoveInputServerRpc(clientMoveInput);
+        }
+
+        if (IsServer)
+        {
+            HandleTimers();
+        }
     }
 
     protected virtual void FixedUpdate()
     {
         if (!IsServer) return;
 
-        serverIsGrounded = Physics.CheckSphere(groundCheck.position, groundDistance, groundMask);
+        isGrounded = Physics.CheckSphere(groundCheck.position, groundDistance, groundMask);
 
         if (CurrentState.Value == PlayerState.Normal)
         {
@@ -316,34 +201,63 @@ public abstract class CharacterBase : NetworkBehaviour
             ApplyBetterGravity();
         }
 
-        float currentSpeed = Mathf.Abs(rb.linearVelocity.x);
-        animator.SetFloat("Speed", currentSpeed);
-        animator.SetBool("IsGrounded", serverIsGrounded);
+        if (animator)
+        {
+            animator.SetFloat(AnimSpeed, Mathf.Abs(rb.linearVelocity.x));
+            animator.SetBool(AnimGrounded, isGrounded);
+        }
+    }
+
+    private void HandleTimers()
+    {
+        // Lógica de inactividad
+        if (Mathf.Abs(rb.linearVelocity.x) > 0.1f || Mathf.Abs(rb.linearVelocity.y) > 0.1f)
+        {
+            // Recupera vida de inactividad si se mueve
+            float newValue = InactivityTimer.Value + (Time.deltaTime * 2f);
+            InactivityTimer.Value = Mathf.Clamp(newValue, 0, maxInactivityTime);
+        }
+        else
+        {
+            // Pierde vida si está quieto
+            InactivityTimer.Value -= Time.deltaTime;
+        }
+
+        if (InactivityTimer.Value <= 0)
+        {
+            DieByInactivity();
+        }
+
+        // Cooldown de empuje
+        if (PushTimer.Value > 0)
+        {
+            PushTimer.Value -= Time.deltaTime;
+        }
     }
 
     private void HandleMovementAndRotation()
     {
-        // 1. MOVIMIENTO
+        // 1. Movimiento
         float targetSpeed = serverMoveInput * velocidad;
         float accelRate = (Mathf.Abs(targetSpeed) > 0.01f) ? acceleration : deceleration;
-        if (!serverIsGrounded) accelRate *= airControlMultiplier;
+        if (!isGrounded) accelRate *= airControlMultiplier;
 
         float newSpeedX = Mathf.MoveTowards(rb.linearVelocity.x, targetSpeed, accelRate * Time.fixedDeltaTime);
         rb.linearVelocity = new Vector3(newSpeedX, rb.linearVelocity.y, 0f);
 
-        // 2. ROTACIÓN CONTROLADA (AQUÍ ESTÁ EL AJUSTE)
-        if (Mathf.Abs(serverMoveInput) > 0.01f)
+        // 2. Rotación
+        if (Mathf.Abs(serverMoveInput) > 0.1f)
         {
-            Quaternion targetRotation = (serverMoveInput > 0)
-                                        ? Quaternion.Euler(0, 90, 0)
-                                        : Quaternion.Euler(0, -90, 0);
+            float targetAngleY = (serverMoveInput > 0) ? 90f : -90f;
+            Quaternion targetRotation = Quaternion.Euler(0, targetAngleY, 0);
+            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, Time.fixedDeltaTime * rotationSpeed * 0.5f);
+        }
 
-            // Multiplicador 35f:
-            // Si rotationSpeed es 20, gira a 700 grados/segundo.
-            // Tarda ~0.25s en girar 180 grados. Es visible pero rápido.
-            float giroReal = rotationSpeed * 45f;
-
-            transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, giroReal * Time.fixedDeltaTime);
+        // Corrección de rotación indeseada
+        Vector3 currentEuler = transform.rotation.eulerAngles;
+        if (Mathf.Abs(currentEuler.x) > 1f || Mathf.Abs(currentEuler.z) > 1f)
+        {
+            transform.rotation = Quaternion.Euler(0, currentEuler.y, 0);
         }
     }
 
@@ -355,62 +269,122 @@ public abstract class CharacterBase : NetworkBehaviour
         }
     }
 
-    public void HitCheck()
+    // ---------------- RPCs ----------------
+
+    [Rpc(SendTo.Server)]
+    private void UpdateMoveInputServerRpc(float input)
     {
-        if (!IsServer) return;
+        serverMoveInput = input;
+    }
 
-        Collider[] hits = Physics.OverlapSphere(hitPoint.position, hitRadius, hitableLayers);
-
-        foreach (Collider hit in hits)
+    [Rpc(SendTo.Server)]
+    private void JumpServerRpc()
+    {
+        if (isGrounded && CurrentState.Value == PlayerState.Normal)
         {
-            if (hit.transform == this.transform) continue;
+            rb.linearVelocity = new Vector3(rb.linearVelocity.x, 0, 0);
+            rb.AddForce(Vector3.up * 8f, ForceMode.Impulse); // Ajusta fuerza de salto aquí
+            if (animator) animator.SetTrigger(AnimJump);
+        }
+    }
 
-            if (hit.TryGetComponent<CharacterBase>(out CharacterBase victimPlayer))
+    [Rpc(SendTo.Server)]
+    private void NormalAttackServerRpc()
+    {
+        if (PushTimer.Value > 0) return; // Cooldown activo
+
+        // PushTimer.Value = pushCooldown; // Reiniciar cooldown
+        // Mejor hacerlo al final del ataque o aquí, depende del gusto.
+
+        if (animator) animator.SetTrigger(AnimAttack);
+        StartCoroutine(HitCheckRoutine());
+
+        // Aplicar cooldown
+        PushTimer.Value = pushCooldown;
+    }
+
+    private IEnumerator HitCheckRoutine()
+    {
+        yield return new WaitForSeconds(attackDelay);
+
+        Vector3 startPoint = transform.position + Vector3.up * 1.0f;
+        Vector3 endPoint = hitPoint != null ? hitPoint.position : transform.position + transform.forward;
+
+        Collider[] hits = Physics.OverlapCapsule(startPoint, endPoint, hitRadius, hitableLayers);
+
+        foreach (var hit in hits)
+        {
+            if (hit.gameObject == gameObject) continue;
+
+            if (hit.TryGetComponent<CharacterBase>(out CharacterBase victim))
             {
-                Vector3 horizontalDir = (victimPlayer.transform.position - transform.position);
-                horizontalDir.y = 0;
-                horizontalDir.z = 0;
-                horizontalDir.Normalize();
-
-                ulong attackerId = this.OwnerClientId;
-                ulong victimId = victimPlayer.OwnerClientId;
-                bool victimIsKing = (MinigameManager.Instance != null && MinigameManager.Instance.CurrentKingId.Value == victimId);
-
-                if (victimIsKing && attackerId != victimId)
+                // ROBAR CORONA (Integración con CrownGameManagerNetcode)
+                if (CrownGameManagerNetcode.Instance != null && victim.IsKing.Value)
                 {
-                    MinigameManager.Instance.TransferCrown(this);
+                    CrownGameManagerNetcode.Instance.TransferCrown(this);
                 }
-                victimPlayer.ApplyKnockback(horizontalDir, punchForce);
-            }
-            else if (hit.TryGetComponent<Rigidbody>(out Rigidbody objectRb))
-            {
-                Vector3 objectDirection = (hit.transform.position - transform.position).normalized + (Vector3.up * 0.3f);
-                objectRb.AddForce(objectDirection * punchForce, ForceMode.Impulse);
+
+                // EMPUJE FÍSICO
+                Vector3 dir = (victim.transform.position - transform.position).normalized;
+                dir.y = 0.2f;
+                dir.z = 0;
+                dir.Normalize();
+
+                victim.ApplyKnockback(dir, punchForce);
             }
         }
     }
 
-    private IEnumerator HitCheckDelay()
-    {
-        yield return new WaitForSeconds(attackDelay);
-        HitCheck();
-    }
-
-    public void ApplyKnockback(Vector3 horizontalDirection, float horizontalForce)
+    public void ApplyKnockback(Vector3 dir, float force)
     {
         if (!IsServer) return;
         if (CurrentState.Value != PlayerState.Normal) return;
 
         CurrentState.Value = PlayerState.Knockback;
-        rb.linearVelocity = new Vector3(rb.linearVelocity.x, 0, rb.linearVelocity.z);
-        rb.AddForce(horizontalDirection * horizontalForce, ForceMode.Impulse);
+        rb.linearVelocity = Vector3.zero;
+        rb.AddForce(dir * force, ForceMode.Impulse);
         rb.AddForce(Vector3.up * verticalKnockup, ForceMode.Impulse);
-        StartCoroutine(KnockbackCooldown());
+
+        StartCoroutine(RecoverFromKnockback());
     }
 
-    private IEnumerator KnockbackCooldown()
+    private IEnumerator RecoverFromKnockback()
     {
         yield return new WaitForSeconds(knockbackDuration);
         CurrentState.Value = PlayerState.Normal;
+    }
+
+    private void DieByInactivity()
+    {
+        if (!IsServer) return;
+        Debug.Log($"Jugador {OwnerClientId} murió de inactividad.");
+
+        // 1. Minijuego Corona
+        if (CrownGameManagerNetcode.Instance != null)
+            CrownGameManagerNetcode.Instance.OnPlayerDied(this);
+
+        // 2. Minijuego Bola Loca
+        if (CrazyBallGameManager.Instance != null)
+            CrazyBallGameManager.Instance.OnPlayerEliminated(this);
+
+        // 3. Minijuego Suelo que cae
+        if (FallingGameManager.Instance != null)
+            FallingGameManager.Instance.OnPlayerFell(this);
+
+        KillPlayerClientRpc();
+    }
+
+    [ClientRpc]
+    public void KillPlayerClientRpc()
+    {
+        gameObject.SetActive(false);
+        if (GameManager.Instance != null) GameManager.Instance.TriggerCameraShake();
+    }
+
+    [ClientRpc]
+    public void TeleportPlayerClientRpc(Vector3 pos)
+    {
+        transform.position = pos;
+        if (rb) rb.linearVelocity = Vector3.zero;
     }
 }

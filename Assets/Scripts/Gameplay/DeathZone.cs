@@ -5,17 +5,25 @@ public class DeathZone : NetworkBehaviour
 {
     private void OnTriggerEnter(Collider other)
     {
-        // Solo el servidor decide quién muere
+        // Solo el servidor procesa la muerte
         if (!IsServer) return;
 
-        // ¿Cayó un jugador?
         if (other.TryGetComponent<CharacterBase>(out CharacterBase player))
         {
-            // Avisamos al Manager de este nivel que alguien murió
-            if (SurvivalGameManager.Instance != null)
+            // Verificar cuál manager está activo
+            if (FallingGameManager.Instance != null)
             {
-                SurvivalGameManager.Instance.OnPlayerDied(player);
+                FallingGameManager.Instance.OnPlayerFell(player);
             }
+            // (Aquí podrías añadir 'else if' para otros minijuegos si usas la misma DeathZone)
+        }
+        // Destruir bloques que caigan para limpiar la escena
+        else if (other.GetComponent<FallingBlock>() != null)
+        {
+            // Si el bloque tiene NetworkObject, despawnearlo
+            var netObj = other.GetComponent<NetworkObject>();
+            if (netObj != null) netObj.Despawn();
+            else Destroy(other.gameObject);
         }
     }
 }

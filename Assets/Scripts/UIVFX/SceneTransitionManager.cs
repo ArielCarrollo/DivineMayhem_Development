@@ -111,4 +111,27 @@ public class SceneTransitionManager : MonoBehaviour
         }
         SceneManager.LoadScene(sceneName, LoadSceneMode.Single);
     }
+    public IEnumerator FadeOutRoutine()
+    {
+        if (fadeCanvasGroup == null) yield break;
+
+        fadeCanvasGroup.blocksRaycasts = true;
+        yield return fadeCanvasGroup.DOFade(1f, genericFadeOut).WaitForCompletion();
+    }
+
+    // NUEVO: Al entrar a la nueva escena, quitamos el negro
+    public IEnumerator FadeInRoutine()
+    {
+        if (fadeCanvasGroup == null) yield break;
+
+        fadeCanvasGroup.blocksRaycasts = true; // Bloquea mientras desvanece
+
+        // Forzamos alpha a 1 al inicio para asegurar que cubra la pantalla antes de desvanecerse
+        fadeCanvasGroup.alpha = 1f;
+
+        yield return fadeCanvasGroup.DOFade(0f, genericFadeIn).WaitForCompletion();
+
+        fadeCanvasGroup.blocksRaycasts = false; // DESBLOQUEA al terminar
+        fadeCanvasGroup.alpha = 0f; // Asegura invisible
+    }
 }

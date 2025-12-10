@@ -11,35 +11,66 @@ using Unity.Services.Lobbies.Models;
 
 public class LobbyUIManager : MonoBehaviour
 {
-    [Header("UI Elements")]
+    #region UI References
+
+    [Header("Paneles Principales")]
     [SerializeField] private GameObject lobbyPanel;
+
+    [Header("Botones Generales")]
     [SerializeField] private Button startGameButton;
     [SerializeField] private Button readyButton;
     [SerializeField] private TextMeshProUGUI readyButtonText;
-    [SerializeField] private TextMeshProUGUI statusText;
     [SerializeField] private TextMeshProUGUI readyCountText;
-    [SerializeField] private TextMeshProUGUI lobbyCodeText;
 
-    [Header("Host Controls")]
+    [Header("Configuración de Rondas (Host Only)")]
+    [SerializeField] private Button decreaseRoundsButton; // Botón [-]
+    [SerializeField] private Button increaseRoundsButton; // Botón [+]
+    [SerializeField] private TextMeshProUGUI roundsValueText; // Texto "5"
+
+    [Header("Control de Salida")]
+    [Tooltip("Botón para que el Host cierre la sala")]
     [SerializeField] private Button closeLobbyButton;
+    [Tooltip("Botón para que un Cliente abandone")]
+    [SerializeField] private Button leaveLobbyButton;
 
-    [Header("Player List")]
+    [Header("Lista de Jugadores")]
     [SerializeField] private Transform playerListContent;
     [SerializeField] private GameObject playerCardPrefab;
-    private Dictionary<ulong, GameObject> playerCardInstances = new Dictionary<ulong, GameObject>();
-
-    [Header("Perfil de Jugador (Ver)")]
-    // Panel emergente para ver la información de un jugador al pulsar en su tarjeta
     [SerializeField] private PlayerInfoPopup playerInfoPopup;
 
-    [Header("Chat (público)")]
+    [Header("Selección de Mapa (Host)")]
+    [SerializeField] private TextMeshProUGUI firstMapText;
+    [SerializeField] private Button changeMapButton;
+
+    [Header("Personalización (Clase/Panteón)")]
+    [SerializeField] private PlayerAppearance previewPlayer;
+    [SerializeField] private Button nextClassButton; // <--- ASEGÚRATE DE ASIGNAR ESTO EN INSPECTOR
+    [SerializeField] private Button prevClassButton; // <--- ASEGÚRATE DE ASIGNAR ESTO EN INSPECTOR
+    [SerializeField] private TextMeshProUGUI classNameText;
+    [SerializeField] private TextMeshProUGUI deityNameText;
+    [SerializeField] private Image pantheonIconImage;
+    [SerializeField] private Sprite[] pantheonSprites;
+
+    [Header("Nombre de Jugador")]
+    [SerializeField] private TextMeshProUGUI playerNameText;
+    [SerializeField] private TMP_InputField nameChangeInputField;
+    [SerializeField] private Button saveNameButton;
+
+    [Header("Colores Estado")]
+    [SerializeField] private Color readyColor = Color.green;
+    [SerializeField] private Color notReadyColor = Color.white;
+
+    #endregion
+
+    #region Chat References
+    [Header("Chat Público")]
     [SerializeField] private GameObject publicChatPanel;
     [SerializeField] private TMP_InputField chatInputField;
     [SerializeField] private Transform chatMessagesContainer;
     [SerializeField] private GameObject chatMessagePrefab;
     [SerializeField] private ScrollRect chatScroll;
 
-    [Header("Chat privado")]
+    [Header("Chat Privado")]
     [SerializeField] private GameObject privateChatPanel;
     [SerializeField] private Transform privatePlayersContainer;
     [SerializeField] private GameObject privatePlayerButtonPrefab;
@@ -47,223 +78,170 @@ public class LobbyUIManager : MonoBehaviour
     [SerializeField] private GameObject privateMessagePrefab;
     [SerializeField] private TMP_InputField privateChatInputField;
     [SerializeField] private Color privateUnreadColor = Color.yellow;
-    // --- Voice (Vivox) ---
-    [Header("Vivox Voice UI")]
+    #endregion
+
+    #region Voice References
+    [Header("Vivox Voice")]
     [SerializeField] private Button micToggleButton;
     [SerializeField] private TextMeshProUGUI micStateText;
     [SerializeField] private Button deafenToggleButton;
     [SerializeField] private TextMeshProUGUI deafenStateText;
-
-    // 👇 añade estos
     [SerializeField] private Sprite micOnSprite;
     [SerializeField] private Sprite micOffSprite;
-    [SerializeField] private Sprite deafenOnSprite;   // ensordecido
-    [SerializeField] private Sprite deafenOffSprite;  // escuchando
+    [SerializeField] private Sprite deafenOnSprite;
+    [SerializeField] private Sprite deafenOffSprite;
+    #endregion
 
-    // refresh pasivo del estado
-    private float _voiceUiRefreshTimer = 0f;
-
-    [Header("Colors")]
-    [SerializeField] private Color readyColor = Color.green;
-    [SerializeField] private Color notReadyColor = Color.white;
-
-    [Header("Customization")]
-    [SerializeField] private PlayerAppearance previewPlayer;
-    [SerializeField] private Button nextBodyButton;
-    [SerializeField] private Button prevBodyButton;
-    [SerializeField] private Button nextEyesButton;
-    [SerializeField] private Button prevEyesButton;
-    [SerializeField] private Button nextGlovesButton;
-    [SerializeField] private Button prevGlovesButton;
+    #region Private Fields
+    private bool isInitialized = false;
+    private Dictionary<ulong, GameObject> playerCardInstances = new Dictionary<ulong, GameObject>();
     private PlayerData localCustomData;
 
-    [Header("Player Name Management")]
-    [SerializeField] private TextMeshProUGUI playerNameText;
-    [SerializeField] private TMP_InputField nameChangeInputField;
-    [SerializeField] private Button saveNameButton;
+    // Datos estáticos de Panteones
+    private readonly string[] classNames = { "Inca", "Shinto", "Greek", "Norse" };
+    private readonly string[] deityNames = { "Viracocha", "Izanagi & Izanami", "Zeus", "Odin" };
 
-    [Header("Player Progression")]
-    // Texto para mostrar los puntos acumulados en lugar de nivel/experiencia
-    [SerializeField] private TextMeshProUGUI levelText;
-    // Barra de progreso de experiencia, ya no utilizada para niveles. Se puede ocultar en la interfaz.
-    [SerializeField] private Slider xpBar;
-
-    [Header("Map Selection")]
-    [Tooltip("Texto que muestra el primer mapa seleccionado por el anfitrión")]
-    [SerializeField] private TextMeshProUGUI firstMapText;
-    [Tooltip("Botón que permite al anfitrión cambiar el primer mapa antes de empezar la partida")]
-    [SerializeField] private Button changeMapButton;
-
-    private bool isInitialized = false;
-
-    // ---- Estructuras de chat ----
-    // público
+    // Variables Chat
     [System.Serializable]
-    private class PublicChatMessage
-    {
-        public string sender;
-        public string text;
-        public bool isHost;
-    }
+    private class PublicChatMessage { public string sender; public string text; public bool isHost; }
     private List<PublicChatMessage> publicChatHistory = new List<PublicChatMessage>();
 
-    // privado
-    private class PrivateEntry
-    {
-        public string playerId;        // id de Unity Services (para DM real)
-        public ulong clientId;         // para fallback desde GameManager
-        public GameObject go;
-        public Image bg;
-        public bool hasUnread;
-        public Color baseColor;
-        public string displayName;
-    }
+    private class PrivateEntry { public string playerId; public ulong clientId; public GameObject go; public Image bg; public bool hasUnread; public Color baseColor; public string displayName; }
     private Dictionary<string, PrivateEntry> privateEntries = new Dictionary<string, PrivateEntry>();
 
     [System.Serializable]
-    private class PrivateChatMessage
-    {
-        public string sender;
-        public string text;
-    }
-    // clave: "pid:<playerId>" o "cid:<clientId>"
+    private class PrivateChatMessage { public string sender; public string text; }
     private Dictionary<string, List<PrivateChatMessage>> privateChatHistory = new Dictionary<string, List<PrivateChatMessage>>();
 
-    // canal privado abierto actualmente
     private string currentPrivateTargetPlayerId = null;
     private ulong currentPrivateTargetClientId = 0;
+    private float _voiceUiRefreshTimer = 0f;
+    #endregion
+
+    #region Initialization & Lifecycle
 
     public void Initialize()
     {
-        if (isInitialized) return;
-
+        // Permitimos re-inicialización si la escena se recargó pero el objeto persistió (aunque en tu caso el UI se destruye y crea de nuevo)
+        isInitialized = false;
         lobbyPanel.SetActive(true);
 
-        if (GameManager.Instance != null && GameManager.Instance.PlayersInLobby != null)
-        {
-            GameManager.Instance.PlayersInLobby.OnListChanged += HandlePlayerListChanged;
-        }
-        else
-        {
-            statusText.text = "Error al conectar con GameManager.";
-            return;
-        }
-
-        startGameButton.onClick.AddListener(OnStartGameClicked);
-        readyButton.onClick.AddListener(OnReadyClicked);
-        saveNameButton.onClick.AddListener(OnSaveNameClicked);
-
-        nextBodyButton.onClick.AddListener(() => OnChangeAppearance(0, 1));
-        prevBodyButton.onClick.AddListener(() => OnChangeAppearance(0, -1));
-        nextEyesButton.onClick.AddListener(() => OnChangeAppearance(1, 1));
-        prevEyesButton.onClick.AddListener(() => OnChangeAppearance(1, -1));
-        nextGlovesButton.onClick.AddListener(() => OnChangeAppearance(2, 1));
-        prevGlovesButton.onClick.AddListener(() => OnChangeAppearance(2, -1));
-
-        if (closeLobbyButton != null)
-        {
-            bool iAmHost = NetworkManager.Singleton.IsHost;
-            closeLobbyButton.gameObject.SetActive(iAmHost);
-            if (iAmHost)
-                closeLobbyButton.onClick.AddListener(OnCloseLobbyClicked);
-        }
-
-        if (CloudAuthManager.Instance != null)
-        {
-            CloudAuthManager.Instance.OnPlayerNameUpdated += HandlePlayerNameUpdated;
-        }
-
-        LoadLocalPlayerData();
-        isInitialized = true;
-
+        // 1. Suscripciones
         if (GameManager.Instance != null)
         {
-            string myName = localCustomData.Username.ToString();
-            if (!string.IsNullOrWhiteSpace(myName))
-            {
-                GameManager.Instance.UpdatePlayerNameServerRpc(myName);
-            }
+            // Primero desuscribir para evitar duplicados si algo raro pasa
+            GameManager.Instance.PlayersInLobby.OnListChanged -= HandlePlayerListChanged;
+            GameManager.Instance.TotalRounds.OnValueChanged -= OnRoundsNetworkValueChanged;
+            GameManager.Instance.OnMapIndexChanged -= HandleMapIndexChanged;
+
+            GameManager.Instance.PlayersInLobby.OnListChanged += HandlePlayerListChanged;
+            GameManager.Instance.TotalRounds.OnValueChanged += OnRoundsNetworkValueChanged;
+            GameManager.Instance.OnMapIndexChanged += HandleMapIndexChanged;
         }
 
-        // enganchar chat vivox
+        if (CloudAuthManager.Instance != null) CloudAuthManager.Instance.OnPlayerNameUpdated += HandlePlayerNameUpdated;
         if (VivoxLobbyChatManager.Instance != null)
         {
-            VivoxLobbyChatManager.Instance.OnTextMessage -= HandleChatMessage;
             VivoxLobbyChatManager.Instance.OnTextMessage += HandleChatMessage;
-
-            VivoxLobbyChatManager.Instance.OnDirectMessage -= HandleDirectMessage;
             VivoxLobbyChatManager.Instance.OnDirectMessage += HandleDirectMessage;
         }
 
-        if (chatInputField != null)
-        {
-            chatInputField.onSubmit?.RemoveAllListeners();
-            chatInputField.onEndEdit.AddListener(OnChatSubmit);
-        }
+        // 2. Configurar Botones
+        SetupButtons();
 
-        if (privateChatInputField != null)
-        {
-            privateChatInputField.onSubmit?.RemoveAllListeners();
-            privateChatInputField.onEndEdit.AddListener(OnPrivateChatSubmit);
-        }
-        
-        // Voice buttons
-        if (micToggleButton)
-        {
-            micToggleButton.onClick.RemoveAllListeners();
-            micToggleButton.onClick.AddListener(OnToggleMicClicked);
-        }
-        if (deafenToggleButton)
-        {
-            deafenToggleButton.onClick.RemoveAllListeners();
-            deafenToggleButton.onClick.AddListener(OnToggleDeafenClicked);
-        }
-        // Pinta estado inicial
-        RefreshVoiceUI();
-        ShowPublicChatPanel(); // al entrar pintamos el historial público
-        StartCoroutine(InitialListRefresh());
-
-        // Configurar selección de mapa inicial (solo para el anfitrión)
+        // 3. Configurar UI Inicial
+        SetupRoundsUI();
+        SetupExitButtons();
         SetupMapSelectionUI();
 
-        // Suscribirnos al cambio de mapa para actualizar el texto cuando el host lo cambie
+        LoadLocalPlayerData();
+        ShowPublicChatPanel();
+
+        // 4. IMPORTANTE: Marcar como inicializado ANTES de intentar refrescar la lista
+        isInitialized = true;
+
+        // 5. Refresco inicial de datos del servidor
         if (GameManager.Instance != null)
         {
-            GameManager.Instance.OnMapIndexChanged -= HandleMapIndexChanged;
-            GameManager.Instance.OnMapIndexChanged += HandleMapIndexChanged;
+            UpdateRoundsText(GameManager.Instance.TotalRounds.Value);
+
+            string myName = localCustomData.Username.ToString();
+            if (!string.IsNullOrWhiteSpace(myName))
+                GameManager.Instance.UpdatePlayerNameServerRpc(myName);
+
+            // CORRECCIÓN PUNTO 3: Iniciamos el refresco agresivo
+            StartCoroutine(InitialListRefresh());
         }
     }
+    private void SetupButtons()
+    {
+        startGameButton.onClick.RemoveAllListeners();
+        startGameButton.onClick.AddListener(OnStartGameClicked);
+        readyButton.onClick.RemoveAllListeners();
+        readyButton.onClick.AddListener(OnReadyClicked);
 
+        if (saveNameButton != null)
+        {
+            saveNameButton.onClick.RemoveAllListeners();
+            saveNameButton.onClick.AddListener(OnSaveNameClicked);
+        }
+        if (nextClassButton != null)
+        {
+            nextClassButton.onClick.RemoveAllListeners();
+            nextClassButton.onClick.AddListener(() => OnChangeClass(1));
+        }
+        if (prevClassButton != null)
+        {
+            prevClassButton.onClick.RemoveAllListeners();
+            prevClassButton.onClick.AddListener(() => OnChangeClass(-1));
+        }
+
+        if (chatInputField != null) chatInputField.onEndEdit.AddListener(OnChatSubmit);
+        if (privateChatInputField != null) privateChatInputField.onEndEdit.AddListener(OnPrivateChatSubmit);
+        if (micToggleButton) micToggleButton.onClick.AddListener(OnToggleMicClicked);
+        if (deafenToggleButton) deafenToggleButton.onClick.AddListener(OnToggleDeafenClicked);
+    }
     private IEnumerator InitialListRefresh()
     {
-        float timeout = 2.5f;
-        while (timeout > 0f)
+        // Esperamos un frame para asegurar que la escena esté lista
+        yield return null;
+
+        // --- LÓGICA DE REINTENTOS AGRESIVA ---
+        // Al volver de una partida, la lista ya tiene datos, pero el evento OnListChanged
+        // ocurrió antes de que esta escena cargara. Por eso debemos "pollear" (consultar)
+        // los datos manualmente varias veces.
+
+        float retryDuration = 2.0f; // Intentar durante 2 segundos
+        float interval = 0.2f;      // Cada 0.2 segundos
+
+        while (retryDuration > 0)
         {
-            if (GameManager.Instance != null &&
-                GameManager.Instance.PlayersInLobby != null &&
-                GameManager.Instance.PlayersInLobby.Count > 0)
+            // Forzamos el redibujado
+            HandlePlayerListChanged(new NetworkListEvent<PlayerData>());
+
+            // También forzamos actualización de rondas y mapa por si acaso
+            if (GameManager.Instance != null)
             {
-                HandlePlayerListChanged(new NetworkListEvent<PlayerData>());
-                yield break;
+                UpdateRoundsText(GameManager.Instance.TotalRounds.Value);
+                UpdateFirstMapText();
             }
-            timeout -= Time.deltaTime;
-            yield return null;
+
+            yield return new WaitForSeconds(interval);
+            retryDuration -= interval;
         }
-
-        HandlePlayerListChanged(new NetworkListEvent<PlayerData>());
     }
-
     private void OnDisable()
     {
-        if (GameManager.Instance != null && GameManager.Instance.PlayersInLobby != null)
+        if (GameManager.Instance != null)
         {
-            GameManager.Instance.PlayersInLobby.OnListChanged -= HandlePlayerListChanged;
+            if (GameManager.Instance.PlayersInLobby != null)
+                GameManager.Instance.PlayersInLobby.OnListChanged -= HandlePlayerListChanged;
+
+            GameManager.Instance.TotalRounds.OnValueChanged -= OnRoundsNetworkValueChanged;
+            GameManager.Instance.OnMapIndexChanged -= HandleMapIndexChanged;
         }
 
-        if (CloudAuthManager.Instance != null)
-        {
-            CloudAuthManager.Instance.OnPlayerNameUpdated -= HandlePlayerNameUpdated;
-        }
+        if (CloudAuthManager.Instance != null) CloudAuthManager.Instance.OnPlayerNameUpdated -= HandlePlayerNameUpdated;
 
         if (VivoxLobbyChatManager.Instance != null)
         {
@@ -271,82 +249,26 @@ public class LobbyUIManager : MonoBehaviour
             VivoxLobbyChatManager.Instance.OnDirectMessage -= HandleDirectMessage;
         }
 
-        foreach (var card in playerCardInstances.Values)
-        {
-            Destroy(card);
-        }
+        foreach (var card in playerCardInstances.Values) Destroy(card);
         playerCardInstances.Clear();
         privateEntries.Clear();
-
-        if (GameManager.Instance != null)
-        {
-            GameManager.Instance.OnMapIndexChanged -= HandleMapIndexChanged;
-        }
 
         isInitialized = false;
     }
 
-    /// <summary>
-    /// Configura la interfaz de selección de mapa. Sólo el anfitrión puede cambiar el mapa inicial.
-    /// </summary>
-    private void SetupMapSelectionUI()
-    {
-        if (changeMapButton != null)
-        {
-            bool isHost = NetworkManager.Singleton.IsHost;
-            changeMapButton.gameObject.SetActive(isHost);
-            changeMapButton.onClick.RemoveAllListeners();
-            if (isHost)
-            {
-                changeMapButton.onClick.AddListener(OnChangeMapClicked);
-            }
-        }
-        UpdateFirstMapText();
-    }
-
-    /// <summary>
-    /// Maneja el clic en el botón de cambio de mapa. Se pasa al siguiente mapa disponible.
-    /// </summary>
-    private void OnChangeMapClicked()
-    {
-        if (GameManager.Instance == null) return;
-
-        var maps = GameManager.Instance.AvailableMapNames;
-        if (maps == null || maps.Count == 0) return;
-
-        int currentIndex = GameManager.Instance.CurrentMapIndex;
-        int nextIndex = (currentIndex + 1) % maps.Count;
-        GameManager.Instance.SetStartingMapServerRpc(nextIndex);
-    }
-
-    /// <summary>
-    /// Actualiza el texto que muestra el primer mapa seleccionado. Se llama al inicializar y al cambiar.
-    /// </summary>
-    public void UpdateFirstMapText()
-    {
-        if (firstMapText == null || GameManager.Instance == null) return;
-        var maps = GameManager.Instance.AvailableMapNames;
-        if (maps == null || maps.Count == 0) return;
-        int index = GameManager.Instance.CurrentMapIndex;
-        string mapName = maps[index];
-        firstMapText.text = $"Primer Mapa: {mapName}";
-    }
-
     private void Update()
     {
-        // parpadeo de los que tienen mensajes sin leer
-        if (privateEntries.Count > 0 && privatePlayersContainer != null && privateChatPanel != null && privateChatPanel.activeSelf)
+        if (privateEntries.Count > 0 && privateChatPanel != null && privateChatPanel.activeSelf)
         {
             float t = Mathf.PingPong(Time.unscaledTime * 3.5f, 1f);
             foreach (var kvp in privateEntries)
             {
                 var entry = kvp.Value;
                 if (entry.hasUnread && entry.bg != null)
-                {
                     entry.bg.color = Color.Lerp(entry.baseColor, privateUnreadColor, t);
-                }
             }
         }
+
         _voiceUiRefreshTimer += Time.unscaledDeltaTime;
         if (_voiceUiRefreshTimer >= 0.5f)
         {
@@ -354,255 +276,393 @@ public class LobbyUIManager : MonoBehaviour
             RefreshVoiceUI();
         }
     }
+    #endregion
 
-    private void LoadLocalPlayerData()
+    #region Class Selection Logic (Panteones)
+
+    private void OnChangeClass(int direction)
     {
-        if (CloudAuthManager.Instance == null)
+        if (GameManager.Instance == null) return;
+
+        // Cuántas clases hay (normalmente 4)
+        int maxClasses = 4;
+        if (previewPlayer != null) maxClasses = previewPlayer.GetPantheonCount();
+        if (maxClasses == 0) maxClasses = 4;
+
+        int currentIndex = localCustomData.PantheonIndex;
+        int attempts = 0;
+        int potentialIndex = currentIndex;
+
+        // Buscamos el siguiente índice que NO esté ocupado por otro jugador
+        do
         {
-            localCustomData = new PlayerData(0, "Jugador");
-            UpdateNameAndLevelUI(localCustomData);
-            return;
-        }
+            // Algoritmo circular para sumar o restar
+            potentialIndex = (potentialIndex + direction) % maxClasses;
+            if (potentialIndex < 0) potentialIndex += maxClasses;
 
-        localCustomData = CloudAuthManager.Instance.LocalPlayerData;
+            attempts++;
 
-        if (localCustomData.Username.Length == 0)
+        } while (IsClassTaken(potentialIndex) && attempts < maxClasses);
+
+        // Si encontramos uno libre (o dimos la vuelta y nos quedamos con el mismo)
+        localCustomData.PantheonIndex = potentialIndex;
+
+        // 1. Actualizar visuales locales inmediatamente (Predicción)
+        if (previewPlayer != null) previewPlayer.ApplyAppearance(localCustomData);
+        UpdateClassAndDeityUI(localCustomData.PantheonIndex);
+
+        // 2. Enviar al servidor para que actualice la NetworkList y avise a los demás
+        GameManager.Instance.UpdatePlayerAppearanceServerRpc(localCustomData);
+
+        // 3. Guardar localmente
+        if (CloudAuthManager.Instance != null)
         {
-            string authName = CloudAuthManager.Instance.GetPlayerName();
-            if (!string.IsNullOrWhiteSpace(authName))
-            {
-                localCustomData.Username = new FixedString64Bytes(authName);
-                CloudAuthManager.Instance.UpdateLocalData(localCustomData);
-            }
-        }
-
-        UpdateNameAndLevelUI(localCustomData);
-
-        if (previewPlayer != null)
-        {
-            previewPlayer.ApplyAppearance(localCustomData);
+            CloudAuthManager.Instance.UpdateLocalData(localCustomData);
         }
     }
 
-    private void HandlePlayerListChanged(NetworkListEvent<PlayerData> changeEvent)
+    private bool IsClassTaken(int indexToCheck)
     {
-        if (GameManager.Instance == null || !isInitialized)
-            return;
+        if (GameManager.Instance == null) return false;
 
-        // ids actuales
-        List<ulong> currentIds = new List<ulong>();
+        ulong myId = NetworkManager.Singleton.LocalClientId;
+
         foreach (var player in GameManager.Instance.PlayersInLobby)
         {
-            currentIds.Add(player.ClientId);
+            // Ignorarnos a nosotros mismos
+            if (player.ClientId == myId) continue;
+
+            if (player.PantheonIndex == indexToCheck)
+            {
+                return true; // Está ocupada
+            }
+        }
+        return false;
+    }
+
+    private void UpdateClassAndDeityUI(int index)
+    {
+        if (index >= 0 && index < classNames.Length)
+        {
+            if (classNameText != null) classNameText.text = classNames[index];
+            if (deityNameText != null) deityNameText.text = deityNames[index];
+        }
+        else
+        {
+            if (classNameText != null) classNameText.text = "Unknown";
+            if (deityNameText != null) deityNameText.text = "---";
         }
 
-        // limpiar los que ya no están
-        List<ulong> idsToRemove = new List<ulong>();
+        if (pantheonIconImage != null && pantheonSprites != null)
+        {
+            if (index >= 0 && index < pantheonSprites.Length)
+            {
+                pantheonIconImage.sprite = pantheonSprites[index];
+            }
+        }
+    }
+
+    #endregion
+
+    #region Game Settings Logic (Rounds & Maps & Exit)
+
+    private void SetupRoundsUI()
+    {
+        bool isHost = NetworkManager.Singleton.IsHost;
+
+        if (decreaseRoundsButton) decreaseRoundsButton.gameObject.SetActive(isHost);
+        if (increaseRoundsButton) increaseRoundsButton.gameObject.SetActive(isHost);
+        if (roundsValueText) roundsValueText.gameObject.SetActive(true);
+
+        if (isHost)
+        {
+            decreaseRoundsButton.onClick.RemoveAllListeners();
+            increaseRoundsButton.onClick.RemoveAllListeners();
+
+            decreaseRoundsButton.onClick.AddListener(() => ChangeRoundsAmount(-1));
+            increaseRoundsButton.onClick.AddListener(() => ChangeRoundsAmount(1));
+        }
+    }
+
+    private void ChangeRoundsAmount(int change)
+    {
+        if (GameManager.Instance == null) return;
+        int current = GameManager.Instance.TotalRounds.Value;
+        int nextValue = Mathf.Clamp(current + change, 1, 10);
+
+        if (nextValue != current)
+            GameManager.Instance.SetTotalRoundsServerRpc(nextValue);
+    }
+
+    private void OnRoundsNetworkValueChanged(int previous, int current)
+    {
+        UpdateRoundsText(current);
+    }
+
+    private void UpdateRoundsText(int value)
+    {
+        if (roundsValueText != null) roundsValueText.text = value.ToString();
+    }
+
+    private void SetupExitButtons()
+    {
+        bool isHost = NetworkManager.Singleton.IsHost;
+
+        if (closeLobbyButton)
+        {
+            closeLobbyButton.gameObject.SetActive(isHost);
+            closeLobbyButton.onClick.RemoveAllListeners();
+            closeLobbyButton.onClick.AddListener(OnCloseLobbyClicked);
+        }
+
+        if (leaveLobbyButton)
+        {
+            leaveLobbyButton.gameObject.SetActive(!isHost);
+            leaveLobbyButton.onClick.RemoveAllListeners();
+            leaveLobbyButton.onClick.AddListener(OnLeaveLobbyClicked);
+        }
+    }
+
+    private void OnCloseLobbyClicked()
+    {
+        if (GameManager.Instance != null) GameManager.Instance.CloseLobbyServerRpc();
+    }
+
+    private void OnLeaveLobbyClicked()
+    {
+        if (GameManager.Instance != null) GameManager.Instance.LeaveLobby();
+    }
+
+    private void SetupMapSelectionUI()
+    {
+        bool isHost = NetworkManager.Singleton.IsHost;
+        if (changeMapButton != null)
+        {
+            changeMapButton.gameObject.SetActive(isHost);
+            changeMapButton.onClick.RemoveAllListeners();
+            if (isHost) changeMapButton.onClick.AddListener(OnChangeMapClicked);
+        }
+        UpdateFirstMapText();
+    }
+
+    private void OnChangeMapClicked()
+    {
+        if (GameManager.Instance == null) return;
+        var maps = GameManager.Instance.AvailableMapNames;
+        if (maps == null || maps.Count == 0) return;
+
+        int nextIndex = (GameManager.Instance.CurrentMapIndex + 1) % maps.Count;
+        GameManager.Instance.SetStartingMapServerRpc(nextIndex);
+    }
+
+    private void HandleMapIndexChanged(int newIndex) => UpdateFirstMapText();
+
+    public void UpdateFirstMapText()
+    {
+        if (firstMapText == null || GameManager.Instance == null) return;
+        var maps = GameManager.Instance.AvailableMapNames;
+        if (maps != null && maps.Count > 0)
+        {
+            int index = GameManager.Instance.CurrentMapIndex;
+            if (index >= 0 && index < maps.Count)
+                firstMapText.text = $"First Game: {maps[index]}";
+        }
+    }
+    #endregion
+
+    #region Player List Logic
+
+    private void HandlePlayerListChanged(NetworkListEvent<PlayerData> changeEvent)
+    {
+        // Esta comprobación era la que fallaba antes. Ahora isInitialized es true al llegar aquí.
+        if (GameManager.Instance == null || !isInitialized) return;
+
+        List<ulong> currentIds = new List<ulong>();
+        foreach (var p in GameManager.Instance.PlayersInLobby) currentIds.Add(p.ClientId);
+
+        List<ulong> toRemove = new List<ulong>();
         foreach (var kvp in playerCardInstances)
         {
             if (!currentIds.Contains(kvp.Key))
             {
                 Destroy(kvp.Value);
-                idsToRemove.Add(kvp.Key);
+                toRemove.Add(kvp.Key);
             }
         }
-        foreach (var id in idsToRemove)
-            playerCardInstances.Remove(id);
+        foreach (var id in toRemove) playerCardInstances.Remove(id);
 
         int readyCount = 0;
-        bool localPlayerFound = false;
-        ulong localClientId = NetworkManager.Singleton.LocalClientId;
-        PlayerData localPlayerData = default;
+        bool localFound = false;
+        ulong myId = NetworkManager.Singleton.LocalClientId;
+        PlayerData localData = default;
 
         foreach (var player in GameManager.Instance.PlayersInLobby)
         {
-            if (!playerCardInstances.TryGetValue(player.ClientId, out var cardInstance))
+            if (!playerCardInstances.TryGetValue(player.ClientId, out var card))
             {
-                cardInstance = Instantiate(playerCardPrefab, playerListContent);
-                playerCardInstances[player.ClientId] = cardInstance;
+                card = Instantiate(playerCardPrefab, playerListContent);
+                playerCardInstances[player.ClientId] = card;
             }
 
-            UpdatePlayerCard(cardInstance, player);
+            UpdatePlayerCard(card, player);
 
-            if (player.IsReady)
-                readyCount++;
-
-            if (player.ClientId == localClientId)
+            if (player.IsReady) readyCount++;
+            if (player.ClientId == myId)
             {
-                localPlayerFound = true;
-                localPlayerData = player;
+                localFound = true;
+                localData = player;
 
-                if (player.Username.Length > 0)
+                // Sincronizar datos locales con el servidor (importante al volver de partida)
+                if (localCustomData.PantheonIndex != player.PantheonIndex)
                 {
                     localCustomData = player;
-                    UpdateNameAndLevelUI(localCustomData);
+                    if (previewPlayer != null) previewPlayer.ApplyAppearance(localCustomData);
+                    UpdateClassAndDeityUI(localCustomData.PantheonIndex);
                 }
             }
         }
 
-        UpdateLobbyControls(localPlayerData, readyCount, localPlayerFound);
-
-        // si estamos viendo los privados, refrescamos la lista
-        if (privateChatPanel != null && privateChatPanel.activeSelf)
-        {
-            RefreshPrivatePlayersList();
-        }
+        UpdateLobbyControls(localData, readyCount, localFound);
+        if (privateChatPanel != null && privateChatPanel.activeSelf) RefreshPrivatePlayersList();
     }
 
-    private string SanitizeName(FixedString64Bytes fs, ulong clientId)
+    private void UpdatePlayerCard(GameObject card, PlayerData player)
     {
-        string s = fs.ToString();
-        if (!string.IsNullOrEmpty(s))
-            s = s.Replace("\0", string.Empty);
+        var nameTxt = card.transform.Find("PlayerNameText")?.GetComponent<TextMeshProUGUI>();
+        if (nameTxt == null) nameTxt = card.GetComponentInChildren<TextMeshProUGUI>(true);
+        if (nameTxt != null) nameTxt.text = SanitizeName(player.Username, player.ClientId);
 
-        if (string.IsNullOrWhiteSpace(s))
-            s = $"Player_{clientId}";
+        var img = card.GetComponent<Image>();
+        if (img != null) img.color = player.IsReady ? readyColor : notReadyColor;
 
-        return s;
-    }
-
-    private void UpdatePlayerCard(GameObject cardInstance, PlayerData player)
-    {
-        TextMeshProUGUI nameText = cardInstance.transform
-            .Find("PlayerNameText")?.GetComponent<TextMeshProUGUI>();
-
-        if (nameText == null)
-            nameText = cardInstance.GetComponentInChildren<TextMeshProUGUI>(true);
-
-        string nick = SanitizeName(player.Username, player.ClientId);
-
-        if (nameText != null)
-            nameText.text = nick;
-
-        var panelImage = cardInstance.GetComponent<Image>();
-        if (panelImage != null)
-            panelImage.color = player.IsReady ? readyColor : notReadyColor;
-
-        var hostIcon = cardInstance.transform.Find("HostIcon")?.gameObject;
-        if (hostIcon != null)
-            hostIcon.SetActive(player.ClientId == NetworkManager.ServerClientId);
-
-        var kickBtnTransform = cardInstance.transform.Find("KickButton");
-        if (kickBtnTransform != null)
+        // --- AÑADIDO: Actualizar el icono del panteón ---
+        // Buscamos una imagen llamada "PantheonIcon" dentro de la tarjeta
+        var pantheonImg = card.transform.Find("PantheonIcon")?.GetComponent<Image>();
+        if (pantheonImg != null && pantheonSprites != null)
         {
-            var kickBtn = kickBtnTransform.GetComponent<Button>();
-            if (kickBtn != null)
+            if (player.PantheonIndex >= 0 && player.PantheonIndex < pantheonSprites.Length)
             {
-                bool iAmHost = NetworkManager.Singleton.IsHost;
-                bool isThisTheHost = (player.ClientId == NetworkManager.ServerClientId);
+                pantheonImg.sprite = pantheonSprites[player.PantheonIndex];
+                pantheonImg.gameObject.SetActive(true);
+            }
+            else
+            {
+                pantheonImg.gameObject.SetActive(false);
+            }
+        }
+        // ------------------------------------------------
 
-                kickBtn.gameObject.SetActive(iAmHost && !isThisTheHost);
-                kickBtn.onClick.RemoveAllListeners();
+        var hostIcon = card.transform.Find("HostIcon")?.gameObject;
+        if (hostIcon != null) hostIcon.SetActive(player.ClientId == NetworkManager.ServerClientId);
 
-                if (iAmHost && !isThisTheHost)
-                {
-                    ulong targetId = player.ClientId;
-                    kickBtn.onClick.AddListener(() => OnKickPlayerClicked(targetId));
-                }
+        var kickBtn = card.transform.Find("KickButton")?.GetComponent<Button>();
+        if (kickBtn != null)
+        {
+            bool amHost = NetworkManager.Singleton.IsHost;
+            bool isTargetHost = (player.ClientId == NetworkManager.ServerClientId);
+            kickBtn.gameObject.SetActive(amHost && !isTargetHost);
+            kickBtn.onClick.RemoveAllListeners();
+            if (amHost && !isTargetHost)
+            {
+                ulong target = player.ClientId;
+                kickBtn.onClick.AddListener(() => OnKickPlayerClicked(target));
             }
         }
 
-        // Configurar el botón de perfil (si existe) para mostrar información detallada
-        // Debes añadir un botón llamado "ProfileButton" dentro del prefab playerCardPrefab
-        var profileBtnTransform = cardInstance.transform.Find("ProfileButton");
-        if (profileBtnTransform != null)
+        var profileBtn = card.transform.Find("ProfileButton")?.GetComponent<Button>();
+        if (profileBtn == null) profileBtn = card.GetComponent<Button>();
+        if (profileBtn != null)
         {
-            var profileBtn = profileBtnTransform.GetComponent<Button>();
-            if (profileBtn != null)
-            {
-                // Remover listeners previos para evitar múltiples suscripciones
-                profileBtn.onClick.RemoveAllListeners();
-                // Capturar copia del PlayerData para la clausura
-                PlayerData capturedPlayer = player;
-                profileBtn.onClick.AddListener(() => OnViewPlayerProfileClicked(capturedPlayer));
-            }
-        }
-        else
-        {
-            // Si no hay un botón específico, intenta usar el Button del propio cardInstance
-            var cardBtn = cardInstance.GetComponent<Button>();
-            if (cardBtn != null)
-            {
-                cardBtn.onClick.RemoveAllListeners();
-                PlayerData capturedPlayer2 = player;
-                cardBtn.onClick.AddListener(() => OnViewPlayerProfileClicked(capturedPlayer2));
-            }
+            profileBtn.onClick.RemoveAllListeners();
+            PlayerData capture = player;
+            profileBtn.onClick.AddListener(() => OnViewPlayerProfileClicked(capture));
         }
     }
 
-    private void UpdateLobbyControls(PlayerData localPlayer, int readyCount, bool localPlayerFound)
+    private void UpdateLobbyControls(PlayerData localPlayer, int readyCount, bool found)
     {
         if (GameManager.Instance == null) return;
+        int total = GameManager.Instance.PlayersInLobby.Count;
+        readyCountText.text = $"{readyCount} / {total}";
 
-        bool allPlayersReady = (readyCount == GameManager.Instance.PlayersInLobby.Count) && (GameManager.Instance.PlayersInLobby.Count > 0);
+        if (found) readyButtonText.text = localPlayer.IsReady ? "Not yet" : "Ready";
+        else readyButtonText.text = "Ready";
 
-        readyCountText.text = $"{readyCount} / {GameManager.Instance.PlayersInLobby.Count}";
-
-        if (localPlayerFound)
-        {
-            readyButtonText.text = localPlayer.IsReady ? "No Listo" : "Listo";
-        }
-        else
-        {
-            readyButtonText.text = "Listo";
-        }
-
+        bool allReady = (readyCount == total && total > 0);
         startGameButton.gameObject.SetActive(NetworkManager.Singleton.IsHost);
-        startGameButton.interactable = allPlayersReady;
+        startGameButton.interactable = allReady;
     }
 
-    private void UpdateNameAndLevelUI(PlayerData data)
+    private void OnKickPlayerClicked(ulong id)
     {
-        string nick = SanitizeName(data.Username,
-            NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : 0);
+        if (GameManager.Instance != null && NetworkManager.Singleton.IsHost)
+            GameManager.Instance.KickPlayerServerRpc(id);
+    }
 
+    private void OnViewPlayerProfileClicked(PlayerData player)
+    {
+        if (playerInfoPopup != null) playerInfoPopup.Show(player);
+    }
+    #endregion
+
+    #region Local Player Data & Customization
+
+    private void LoadLocalPlayerData()
+    {
+        if (CloudAuthManager.Instance != null) localCustomData = CloudAuthManager.Instance.LocalPlayerData;
+        else localCustomData = new PlayerData(0, "Player");
+
+        UpdatePlayerInfoUI(localCustomData);
+
+        // Si ya existen datos en GameManager (ej. volviendo de partida), usarlos
+        if (GameManager.Instance != null)
+        {
+            foreach (var p in GameManager.Instance.PlayersInLobby)
+            {
+                if (p.ClientId == NetworkManager.Singleton.LocalClientId)
+                {
+                    localCustomData.PantheonIndex = p.PantheonIndex;
+                    break;
+                }
+            }
+        }
+
+        if (previewPlayer != null) previewPlayer.ApplyAppearance(localCustomData);
+        UpdateClassAndDeityUI(localCustomData.PantheonIndex);
+    }
+
+    private void UpdatePlayerInfoUI(PlayerData data)
+    {
+        string nick = SanitizeName(data.Username, data.ClientId);
         playerNameText.text = nick;
         nameChangeInputField.text = nick;
+    }
 
-        if (GameManager.Instance == null) return;
-
-        // Mostrar puntos acumulados en lugar de nivel/experiencia
-        levelText.text = $"Puntos: {data.Points}";
-        // Ocultar o deshabilitar la barra de XP ya que no se utiliza en el sistema de puntos
-        if (xpBar != null)
-        {
-            xpBar.maxValue = 1;
-            xpBar.value = 1;
-            xpBar.gameObject.SetActive(false);
-        }
+    private string SanitizeName(FixedString64Bytes fs, ulong id)
+    {
+        string s = fs.ToString().Replace("\0", "");
+        return string.IsNullOrWhiteSpace(s) ? $"Player_{id}" : s;
     }
 
     private void OnStartGameClicked()
     {
         if (GameManager.Instance != null && NetworkManager.Singleton.IsHost)
-        {
             GameManager.Instance.StartGameServerRpc();
-        }
     }
 
     private void OnReadyClicked()
     {
-        if (GameManager.Instance != null)
-        {
-            GameManager.Instance.ToggleReadyServerRpc();
-        }
+        if (GameManager.Instance != null) GameManager.Instance.ToggleReadyServerRpc();
     }
 
     private async void OnSaveNameClicked()
     {
         string newName = nameChangeInputField.text;
-        if (string.IsNullOrWhiteSpace(newName) || newName.Length < 3)
-        {
-            Debug.LogError("El nombre debe tener al menos 3 caracteres.");
-            return;
-        }
+        if (string.IsNullOrWhiteSpace(newName) || newName.Length < 3) return;
 
         saveNameButton.interactable = false;
         await CloudAuthManager.Instance.UpdatePlayerNameAsync(newName);
-        if (GameManager.Instance != null)
-        {
-            GameManager.Instance.UpdatePlayerNameServerRpc(newName);
-        }
+        if (GameManager.Instance != null) GameManager.Instance.UpdatePlayerNameServerRpc(newName);
         saveNameButton.interactable = true;
     }
 
@@ -612,152 +672,39 @@ public class LobbyUIManager : MonoBehaviour
         localCustomData.Username = new FixedString64Bytes(newName);
         CloudAuthManager.Instance.UpdateLocalData(localCustomData);
     }
+    #endregion
 
-    /// <summary>
-    /// Llamado cuando cambia el índice del mapa en GameManager. Se actualiza el texto en pantalla.
-    /// </summary>
-    /// <param name="newIndex">Índice del nuevo mapa.</param>
-    private void HandleMapIndexChanged(int newIndex)
-    {
-        UpdateFirstMapText();
-    }
-
-    private void OnChangeAppearance(int type, int direction)
-    {
-        if (previewPlayer == null) return;
-
-        int maxBody = previewPlayer.GetBodyCount();
-        int maxEyes = previewPlayer.GetEyesCount();
-        int maxGloves = previewPlayer.GetGlovesCount();
-
-        if (maxBody == 0 && type == 0) return;
-        if (maxEyes == 0 && type == 1) return;
-        if (maxGloves == 0 && type == 2) return;
-
-        switch (type)
-        {
-            case 0:
-                localCustomData.BodyIndex = (localCustomData.BodyIndex + direction + maxBody) % maxBody;
-                break;
-            case 1:
-                localCustomData.EyesIndex = (localCustomData.EyesIndex + direction + maxEyes) % maxEyes;
-                break;
-            case 2:
-                localCustomData.GlovesIndex = (localCustomData.GlovesIndex + direction + maxGloves) % maxGloves;
-                break;
-        }
-
-        previewPlayer.ApplyAppearance(localCustomData);
-
-        if (GameManager.Instance != null)
-        {
-            GameManager.Instance.UpdatePlayerAppearanceServerRpc(localCustomData);
-        }
-
-        if (CloudAuthManager.Instance != null)
-        {
-            CloudAuthManager.Instance.UpdateLocalData(localCustomData);
-            _ = CloudAuthManager.Instance.SavePlayerProgress();
-        }
-    }
-
-    private void OnKickPlayerClicked(ulong targetClientId)
-    {
-        if (GameManager.Instance == null) return;
-        if (!NetworkManager.Singleton.IsHost) return;
-
-        GameManager.Instance.KickPlayerServerRpc(targetClientId);
-    }
-
-    private void OnCloseLobbyClicked()
-    {
-        if (!NetworkManager.Singleton.IsHost) return;
-        if (GameManager.Instance != null)
-        {
-            GameManager.Instance.CloseLobbyServerRpc();
-        }
-
-        var relay = FindObjectOfType<RelayLobbyConnector>();
-        if (relay != null)
-        {
-            relay.ShowJoiningPanel();
-        }
-
-        if (UiGameManager.Instance != null)
-        {
-            UiGameManager.Instance.GoToLobbySelection();
-        }
-    }
-
-    /// <summary>
-    /// Se llama al pulsar el botón de perfil en una tarjeta de jugador para ver sus datos.
-    /// Muestra el popup de información.
-    /// </summary>
-    private void OnViewPlayerProfileClicked(PlayerData player)
-    {
-        if (playerInfoPopup == null)
-        {
-            Debug.LogWarning("LobbyUIManager: playerInfoPopup no está asignado en el inspector.");
-            return;
-        }
-        playerInfoPopup.Show(player);
-    }
-
-    // =====================================================================
-    // -------------------------- CHAT PÚBLICO ------------------------------
-    // =====================================================================
+    #region Chat System
 
     private void OnChatSubmit(string text)
     {
-        if (string.IsNullOrWhiteSpace(text))
-            return;
-
+        if (string.IsNullOrWhiteSpace(text)) return;
         SendChat(text);
-        chatInputField.text = string.Empty;
+        chatInputField.text = "";
         chatInputField.ActivateInputField();
     }
 
     private async void SendChat(string text)
     {
         if (VivoxLobbyChatManager.Instance != null)
-        {
             await VivoxLobbyChatManager.Instance.SendTextMessage(text);
-        }
         else
-        {
             HandleChatMessage("Local", text, NetworkManager.Singleton.IsHost);
-        }
     }
 
     private void HandleChatMessage(string sender, string message, bool isHost)
     {
-        // 1) guardamos en historial
-        publicChatHistory.Add(new PublicChatMessage
-        {
-            sender = sender,
-            text = message,
-            isHost = isHost
-        });
-
-        // 2) y también lo pintamos si estamos en el chat público
+        publicChatHistory.Add(new PublicChatMessage { sender = sender, text = message, isHost = isHost });
         if (publicChatPanel != null && publicChatPanel.activeSelf)
             AddPublicMessageToUI(sender, message, isHost);
     }
 
     private void AddPublicMessageToUI(string sender, string message, bool isHost)
     {
-        if (chatMessagePrefab == null || chatMessagesContainer == null)
-            return;
-
-        GameObject msgGO = Instantiate(chatMessagePrefab, chatMessagesContainer);
-        var txt = msgGO.GetComponentInChildren<TextMeshProUGUI>();
-        if (txt != null)
-        {
-            if (isHost)
-                txt.text = $"<b>{sender} [HOST]:</b> {message}";
-            else
-                txt.text = $"<b>{sender}:</b> {message}";
-        }
+        if (chatMessagePrefab == null || chatMessagesContainer == null) return;
+        var go = Instantiate(chatMessagePrefab, chatMessagesContainer);
+        var txt = go.GetComponentInChildren<TextMeshProUGUI>();
+        if (txt != null) txt.text = isHost ? $"<b>{sender} [HOST]:</b> {message}" : $"<b>{sender}:</b> {message}";
 
         if (chatScroll != null)
         {
@@ -766,51 +713,27 @@ public class LobbyUIManager : MonoBehaviour
         }
     }
 
-    private void RenderPublicChatHistory()
-    {
-        if (chatMessagesContainer == null) return;
-
-        foreach (Transform child in chatMessagesContainer)
-            Destroy(child.gameObject);
-
-        foreach (var m in publicChatHistory)
-            AddPublicMessageToUI(m.sender, m.text, m.isHost);
-    }
-
     public void ShowPublicChatPanel()
     {
         if (publicChatPanel) publicChatPanel.SetActive(true);
         if (privateChatPanel) privateChatPanel.SetActive(false);
-
-        // repintar historial público
-        RenderPublicChatHistory();
+        foreach (Transform child in chatMessagesContainer) Destroy(child.gameObject);
+        foreach (var m in publicChatHistory) AddPublicMessageToUI(m.sender, m.text, m.isHost);
     }
-
-    // =====================================================================
-    // -------------------------- CHAT PRIVADO ------------------------------
-    // =====================================================================
 
     public void ShowPrivateChatPanel()
     {
         if (publicChatPanel) publicChatPanel.SetActive(false);
         if (privateChatPanel) privateChatPanel.SetActive(true);
-
         RefreshPrivatePlayersList();
     }
 
-    // Esto ahora es una corrutina en tu versión actual
-    private void RefreshPrivatePlayersList()
-    {
-        StartCoroutine(DoRefreshPrivatePlayersList());
-    }
+    private void RefreshPrivatePlayersList() { StartCoroutine(DoRefreshPrivatePlayersList()); }
 
     private IEnumerator DoRefreshPrivatePlayersList()
     {
-        if (privatePlayersContainer == null)
-            yield break;
-
-        foreach (Transform child in privatePlayersContainer)
-            Destroy(child.gameObject);
+        if (privatePlayersContainer == null) yield break;
+        foreach (Transform child in privatePlayersContainer) Destroy(child.gameObject);
         privateEntries.Clear();
 
         var relay = FindObjectOfType<RelayLobbyConnector>();
@@ -820,406 +743,166 @@ public class LobbyUIManager : MonoBehaviour
         {
             var task = LobbyService.Instance.GetLobbyAsync(relay.CurrentLobby.Id);
             yield return new WaitUntil(() => task.IsCompleted);
-
-            if (!task.IsFaulted && task.Result != null)
-            {
-                lobby = task.Result;
-            }
-            else
-            {
-                lobby = relay.CurrentLobby;
-            }
+            lobby = !task.IsFaulted ? task.Result : relay.CurrentLobby;
         }
 
-        // mi id
-        string myPlayerId = null;
-        if (CloudAuthManager.Instance != null)
-            myPlayerId = CloudAuthManager.Instance.GetPlayerId();
-        else if (AuthenticationService.Instance != null && AuthenticationService.Instance.IsSignedIn)
-            myPlayerId = AuthenticationService.Instance.PlayerId;
+        string myPid = CloudAuthManager.Instance != null ? CloudAuthManager.Instance.GetPlayerId() : AuthenticationService.Instance.PlayerId;
 
-        if (privatePlayerButtonPrefab == null)
+        if (lobby != null && lobby.Players != null)
         {
-            Debug.LogWarning("[LobbyUI] privatePlayerButtonPrefab no asignado.");
-            yield break;
-        }
-
-        bool filledFromLobby = false;
-
-        if (lobby != null && lobby.Players != null && lobby.Players.Count > 1)
-        {
-            Debug.Log($"[LobbyUI] Refrescando privados desde LOBBY (fresco). Jugadores en lobby: {lobby.Players.Count}");
             foreach (var p in lobby.Players)
             {
-                if (p == null) continue;
-                if (!string.IsNullOrEmpty(myPlayerId) && p.Id == myPlayerId)
-                    continue;
-
-                GameObject btnGO = Instantiate(privatePlayerButtonPrefab, privatePlayersContainer);
-                var txt = btnGO.GetComponentInChildren<TextMeshProUGUI>();
-                string displayName = GetLobbyPlayerDisplayName(p);
-                if (txt != null) txt.text = displayName;
-
-                Image bg = btnGO.GetComponent<Image>();
-
-                var entry = new PrivateEntry
-                {
-                    playerId = p.Id,
-                    clientId = 0,
-                    go = btnGO,
-                    bg = bg,
-                    hasUnread = false,
-                    baseColor = bg != null ? bg.color : Color.white,
-                    displayName = displayName
-                };
-                privateEntries[p.Id] = entry;
-
-                string targetId = p.Id;
-                var button = btnGO.GetComponent<Button>();
-                if (button != null)
-                {
-                    button.onClick.AddListener(() => OpenPrivateChannel(targetId, 0));
-                }
-
-                Debug.Log($"[LobbyUI] + jugador privado (lobby): {displayName} ({p.Id})");
+                if (p.Id == myPid) continue;
+                CreatePrivateButton(p.Id, 0, GetLobbyPlayerDisplayName(p));
             }
-
-            filledFromLobby = true;
         }
-
-        if (!filledFromLobby)
+        else if (GameManager.Instance != null)
         {
-            if (GameManager.Instance != null && GameManager.Instance.PlayersInLobby != null)
+            foreach (var p in GameManager.Instance.PlayersInLobby)
             {
-                Debug.Log($"[LobbyUI] Refrescando privados desde GameManager. Jugadores: {GameManager.Instance.PlayersInLobby.Count}");
-                foreach (var p in GameManager.Instance.PlayersInLobby)
-                {
-                    if (p.ClientId == NetworkManager.Singleton.LocalClientId)
-                        continue;
-
-                    GameObject btnGO = Instantiate(privatePlayerButtonPrefab, privatePlayersContainer);
-                    var txt = btnGO.GetComponentInChildren<TextMeshProUGUI>();
-                    string displayName = SanitizeName(p.Username, p.ClientId);
-                    if (txt != null) txt.text = displayName;
-
-                    Image bg = btnGO.GetComponent<Image>();
-
-                    var entry = new PrivateEntry
-                    {
-                        playerId = null,
-                        clientId = p.ClientId,
-                        go = btnGO,
-                        bg = bg,
-                        hasUnread = false,
-                        baseColor = bg != null ? bg.color : Color.white,
-                        displayName = displayName
-                    };
-                    privateEntries[p.ClientId.ToString()] = entry;
-
-                    var button = btnGO.GetComponent<Button>();
-                    if (button != null)
-                    {
-                        ulong cid = p.ClientId;
-                        button.onClick.AddListener(() => OpenPrivateChannel(null, cid));
-                    }
-
-                    Debug.Log($"[LobbyUI] + jugador privado (GM): {displayName} (clientId {p.ClientId})");
-                }
-            }
-            else
-            {
-                Debug.Log("[LobbyUI] No hay lobby ni GameManager para listar privados.");
+                if (p.ClientId == NetworkManager.Singleton.LocalClientId) continue;
+                CreatePrivateButton(null, p.ClientId, SanitizeName(p.Username, p.ClientId));
             }
         }
+    }
+
+    private void CreatePrivateButton(string pid, ulong cid, string displayName)
+    {
+        if (privatePlayerButtonPrefab == null) return;
+        var go = Instantiate(privatePlayerButtonPrefab, privatePlayersContainer);
+        var txt = go.GetComponentInChildren<TextMeshProUGUI>();
+        if (txt != null) txt.text = displayName;
+
+        var entry = new PrivateEntry
+        {
+            playerId = pid,
+            clientId = cid,
+            go = go,
+            bg = go.GetComponent<Image>(),
+            hasUnread = false,
+            baseColor = go.GetComponent<Image>().color,
+            displayName = displayName
+        };
+
+        string key = pid ?? cid.ToString();
+        privateEntries[key] = entry;
+
+        go.GetComponent<Button>().onClick.AddListener(() => OpenPrivateChannel(pid, cid));
     }
 
     private string GetLobbyPlayerDisplayName(Unity.Services.Lobbies.Models.Player p)
     {
-        if (p.Data != null && p.Data.TryGetValue("PlayerName", out var dataObj) && dataObj != null)
-        {
-            return dataObj.Value;
-        }
-
+        if (p.Data != null && p.Data.TryGetValue("PlayerName", out var d)) return d.Value;
         return p.Id;
     }
 
-    private string GetConversationKey(string playerId, ulong clientId)
+    private void OpenPrivateChannel(string pid, ulong cid)
     {
-        if (!string.IsNullOrEmpty(playerId))
-            return "pid:" + playerId;
-        if (clientId != 0)
-            return "cid:" + clientId;
-        return null;
+        currentPrivateTargetPlayerId = pid;
+        currentPrivateTargetClientId = cid;
+
+        string key = pid ?? cid.ToString();
+        if (privateEntries.TryGetValue(key, out var e))
+        {
+            e.hasUnread = false;
+            if (e.bg != null) e.bg.color = e.baseColor;
+        }
+        RenderPrivateConversation();
     }
 
-    private void OpenPrivateChannel(string targetPlayerId, ulong fallbackClientId)
-    {
-        currentPrivateTargetPlayerId = targetPlayerId;
-        currentPrivateTargetClientId = fallbackClientId;
-
-        Debug.Log($"[LobbyUI] Abriendo canal privado con: " +
-                  $"{(string.IsNullOrEmpty(targetPlayerId) ? $"clientId {fallbackClientId}" : targetPlayerId)}");
-
-        // quitar parpadeo
-        if (!string.IsNullOrEmpty(targetPlayerId))
-        {
-            if (privateEntries.TryGetValue(targetPlayerId, out var entry))
-            {
-                entry.hasUnread = false;
-                if (entry.bg != null) entry.bg.color = entry.baseColor;
-            }
-        }
-        else if (fallbackClientId != 0)
-        {
-            string key = fallbackClientId.ToString();
-            if (privateEntries.TryGetValue(key, out var entry))
-            {
-                entry.hasUnread = false;
-                if (entry.bg != null) entry.bg.color = entry.baseColor;
-            }
-        }
-
-        // repintar la conversación que ya había
-        RenderPrivateConversation(targetPlayerId, fallbackClientId);
-    }
-
-    private void RenderPrivateConversation(string targetPlayerId, ulong fallbackClientId)
+    private void RenderPrivateConversation()
     {
         if (privateMessagesContainer == null) return;
+        foreach (Transform child in privateMessagesContainer) Destroy(child.gameObject);
 
-        // limpiar UI
-        foreach (Transform child in privateMessagesContainer)
-            Destroy(child.gameObject);
-
-        // 1º intentamos con playerId
-        string keyPid = GetConversationKey(targetPlayerId, 0);
-        if (!string.IsNullOrEmpty(keyPid) && privateChatHistory.TryGetValue(keyPid, out var msgsPid))
+        string key = GetConversationKey(currentPrivateTargetPlayerId, currentPrivateTargetClientId);
+        if (key != null && privateChatHistory.TryGetValue(key, out var list))
         {
-            foreach (var m in msgsPid)
-                AddPrivateMessageToUI(m.sender, m.text);
-            return;
-        }
-
-        // 2º intentamos con clientId
-        string keyCid = GetConversationKey(null, fallbackClientId);
-        if (!string.IsNullOrEmpty(keyCid) && privateChatHistory.TryGetValue(keyCid, out var msgsCid))
-        {
-            foreach (var m in msgsCid)
-                AddPrivateMessageToUI(m.sender, m.text);
-            return;
+            foreach (var m in list) AddPrivateMessageToUI(m.sender, m.text);
         }
     }
 
     private void OnPrivateChatSubmit(string text)
     {
-        if (string.IsNullOrWhiteSpace(text))
-            return;
-
-        if (string.IsNullOrEmpty(currentPrivateTargetPlayerId) && currentPrivateTargetClientId == 0)
-        {
-            Debug.LogWarning("[LobbyUI] Intenté enviar DM pero no hay destinatario seleccionado.");
-            return;
-        }
-
+        if (string.IsNullOrWhiteSpace(text)) return;
         SendPrivateChat(text);
-        if (privateChatInputField != null)
-        {
-            privateChatInputField.text = string.Empty;
-            privateChatInputField.ActivateInputField();
-        }
+        privateChatInputField.text = "";
+        privateChatInputField.ActivateInputField();
     }
 
     private async void SendPrivateChat(string text)
     {
-        string convKey = GetConversationKey(currentPrivateTargetPlayerId, currentPrivateTargetClientId);
-        if (!string.IsNullOrEmpty(convKey))
+        string key = GetConversationKey(currentPrivateTargetPlayerId, currentPrivateTargetClientId);
+        if (key != null)
         {
-            if (!privateChatHistory.TryGetValue(convKey, out var list))
-            {
-                list = new List<PrivateChatMessage>();
-                privateChatHistory[convKey] = list;
-            }
-            list.Add(new PrivateChatMessage { sender = "Yo", text = text });
+            if (!privateChatHistory.ContainsKey(key)) privateChatHistory[key] = new List<PrivateChatMessage>();
+            privateChatHistory[key].Add(new PrivateChatMessage { sender = "Me", text = text });
+            AddPrivateMessageToUI("Me", text);
         }
 
-        if (!string.IsNullOrEmpty(currentPrivateTargetPlayerId))
-        {
-            Debug.Log($"[LobbyUI] Enviando DM a playerId {currentPrivateTargetPlayerId}: {text}");
-            if (VivoxLobbyChatManager.Instance != null)
-            {
-                await VivoxLobbyChatManager.Instance.SendDirectMessage(currentPrivateTargetPlayerId, text);
-            }
-            AddPrivateMessageToUI("Yo", text);
-        }
-        else if (currentPrivateTargetClientId != 0)
-        {
-            Debug.LogWarning($"[LobbyUI] Quise mandar DM al clientId {currentPrivateTargetClientId} pero no tengo playerId de Vivox/UGS.");
-            AddPrivateMessageToUI("Yo (local)", text);
-        }
-        else
-        {
-            Debug.LogWarning("[LobbyUI] No hay destinatario privado seleccionado.");
-        }
+        if (!string.IsNullOrEmpty(currentPrivateTargetPlayerId) && VivoxLobbyChatManager.Instance != null)
+            await VivoxLobbyChatManager.Instance.SendDirectMessage(currentPrivateTargetPlayerId, text);
     }
 
-    private void HandleDirectMessage(string senderName, string senderPlayerId, string message)
+    private void HandleDirectMessage(string senderName, string senderId, string message)
     {
-        Debug.Log($"[LobbyUI] DM recibido de {senderName} ({senderPlayerId}): {message}");
-
-        // guardamos SIEMPRE
-        string key = GetConversationKey(senderPlayerId, 0);
-        if (!string.IsNullOrEmpty(key))
+        string key = GetConversationKey(senderId, 0);
+        if (key != null)
         {
-            if (!privateChatHistory.TryGetValue(key, out var list))
-            {
-                list = new List<PrivateChatMessage>();
-                privateChatHistory[key] = list;
-            }
-            list.Add(new PrivateChatMessage { sender = senderName, text = message });
+            if (!privateChatHistory.ContainsKey(key)) privateChatHistory[key] = new List<PrivateChatMessage>();
+            privateChatHistory[key].Add(new PrivateChatMessage { sender = senderName, text = message });
         }
 
-        bool isCurrentOpenByPlayerId = !string.IsNullOrEmpty(currentPrivateTargetPlayerId) &&
-                                       currentPrivateTargetPlayerId == senderPlayerId;
-
-        bool isCurrentOpenByClientId = false;
-
-        if (!isCurrentOpenByPlayerId && currentPrivateTargetClientId != 0)
-        {
-            // ver si el actual se abrió por clientId pero el que escribe es ese mismo
-            foreach (var kvp in privateEntries)
-            {
-                var entry = kvp.Value;
-                if (!string.IsNullOrEmpty(entry.playerId) && entry.playerId == senderPlayerId)
-                {
-                    isCurrentOpenByClientId = true;
-                    break;
-                }
-            }
-        }
-
-        if (isCurrentOpenByPlayerId || isCurrentOpenByClientId)
-        {
-            // lo mostramos de una
+        if (currentPrivateTargetPlayerId == senderId)
             AddPrivateMessageToUI(senderName, message);
-        }
-        else
-        {
-            // marcar como pendiente
-            if (privateEntries.TryGetValue(senderPlayerId, out var entry))
-            {
-                entry.hasUnread = true;
-            }
-            else
-            {
-                foreach (var kvp in privateEntries)
-                {
-                    var e = kvp.Value;
-                    if (!string.IsNullOrEmpty(e.playerId) && e.playerId == senderPlayerId)
-                    {
-                        e.hasUnread = true;
-                        break;
-                    }
-                }
-            }
-        }
+        else if (privateEntries.TryGetValue(senderId, out var e))
+            e.hasUnread = true;
     }
 
-    private void AddPrivateMessageToUI(string sender, string message)
+    private void AddPrivateMessageToUI(string sender, string msg)
     {
-        if (privateMessagePrefab == null || privateMessagesContainer == null)
-            return;
-
         var go = Instantiate(privateMessagePrefab, privateMessagesContainer);
-        var txt = go.GetComponentInChildren<TextMeshProUGUI>();
-        if (txt != null)
-            txt.text = $"<b>{sender}:</b> {message}";
-    }
-    private void OnToggleMicClicked()
-    {
-        if (VivoxLobbyChatManager.Instance != null)
-        {
-            VivoxLobbyChatManager.Instance.ToggleMicMute();
-            RefreshVoiceUI();
-        }
+        go.GetComponentInChildren<TextMeshProUGUI>().text = $"<b>{sender}:</b> {msg}";
     }
 
-    private void OnToggleDeafenClicked()
+    private string GetConversationKey(string pid, ulong cid)
     {
-        if (VivoxLobbyChatManager.Instance != null)
-        {
-            VivoxLobbyChatManager.Instance.ToggleDeafen();
-            RefreshVoiceUI();
-        }
+        if (!string.IsNullOrEmpty(pid)) return "pid:" + pid;
+        if (cid != 0) return "cid:" + cid;
+        return null;
     }
+    #endregion
+
+    #region Voice Logic
+    private void OnToggleMicClicked() { if (VivoxLobbyChatManager.Instance) { VivoxLobbyChatManager.Instance.ToggleMicMute(); RefreshVoiceUI(); } }
+    private void OnToggleDeafenClicked() { if (VivoxLobbyChatManager.Instance) { VivoxLobbyChatManager.Instance.ToggleDeafen(); RefreshVoiceUI(); } }
+
     private void RefreshVoiceUI()
     {
         var v = VivoxLobbyChatManager.Instance;
-        if (v == null)
+        if (v == null || !v.IsLoggedIn)
         {
             if (micStateText) micStateText.text = "Mic: —";
             if (deafenStateText) deafenStateText.text = "Audio: —";
             return;
         }
 
-        if (!v.IsLoggedIn) return;
+        bool muted = v.IsMicMuted;
+        bool deaf = v.IsDeafened;
 
+        if (micStateText) micStateText.text = muted ? "Mic: Muted" : "Mic: ON";
+        if (deafenStateText) deafenStateText.text = deaf ? "Audio: Deaf" : "Audio: ON";
 
-        bool micMuted = v.IsMicMuted;
-        bool deafened = v.IsDeafened;
-
-        if (micStateText) micStateText.text = micMuted ? "Mic: Silenciado" : "Mic: Activado";
-        if (deafenStateText) deafenStateText.text = deafened ? "Audio: Ensordecido" : "Audio: Activo";
-
-        // ===== MIC ICON (hijo) =====
-        if (micToggleButton != null)
-        {
-            Image icon = null;
-            var t = micToggleButton.transform.Find("Icon");
-            if (t != null) icon = t.GetComponent<Image>();
-            if (icon == null)
-            {
-                foreach (var img in micToggleButton.GetComponentsInChildren<Image>(true))
-                {
-                    if (img.gameObject == micToggleButton.gameObject) continue;
-                    icon = img;
-                    break;
-                }
-            }
-
-            if (icon != null)
-            {
-                if (micMuted && micOffSprite != null)
-                    icon.sprite = micOffSprite;
-                else if (!micMuted && micOnSprite != null)
-                    icon.sprite = micOnSprite;
-            }
-        }
-
-        // ===== DEAFEN ICON (hijo) =====
-        if (deafenToggleButton != null)
-        {
-            Image icon = null;
-            var t = deafenToggleButton.transform.Find("Icon");
-            if (t != null) icon = t.GetComponent<Image>();
-            if (icon == null)
-            {
-                foreach (var img in deafenToggleButton.GetComponentsInChildren<Image>(true))
-                {
-                    if (img.gameObject == deafenToggleButton.gameObject) continue;
-                    icon = img;
-                    break;
-                }
-            }
-
-            if (icon != null)
-            {
-                if (deafened && deafenOnSprite != null)
-                    icon.sprite = deafenOnSprite;
-                else if (!deafened && deafenOffSprite != null)
-                    icon.sprite = deafenOffSprite;
-            }
-        }
+        UpdateVoiceIcon(micToggleButton, muted ? micOffSprite : micOnSprite);
+        UpdateVoiceIcon(deafenToggleButton, deaf ? deafenOnSprite : deafenOffSprite);
     }
 
-
+    private void UpdateVoiceIcon(Button btn, Sprite sprite)
+    {
+        if (btn == null || sprite == null) return;
+        var icon = btn.transform.Find("Icon")?.GetComponent<Image>();
+        if (icon == null) icon = btn.GetComponentInChildren<Image>();
+        if (icon != null && icon.gameObject != btn.gameObject) icon.sprite = sprite;
+    }
+    #endregion
 }

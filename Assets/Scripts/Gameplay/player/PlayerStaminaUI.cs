@@ -2,46 +2,19 @@ using UnityEngine;
 using UnityEngine.UI; // ¡Importante para el Slider!
 using Unity.Netcode;
 
-public class PlayerStaminaUI : MonoBehaviour
+public struct PlayerScore : INetworkSerializable, System.IEquatable<PlayerScore>
 {
-    [SerializeField] private Slider staminaSlider;
-    [SerializeField] private CharacterBase characterBase;
-    private Camera mainCamera;
+    public ulong PlayerId;
+    public int Score;
 
-    void Start()
+    public void NetworkSerialize<T>(BufferSerializer<T> serializer) where T : IReaderWriter
     {
-        // Encontrar la cámara principal
-        mainCamera = Camera.main;
-
-        // Configurar la barra (usando la propiedad pública que creamos)
-        staminaSlider.maxValue = characterBase.EstaminaMaxima;
-        staminaSlider.value = characterBase.Estamina.Value;
-
-        // ¡LA MAGIA! Suscribirse al evento de cambio de la NetworkVariable
-        characterBase.Estamina.OnValueChanged += OnStaminaChanged;
+        serializer.SerializeValue(ref PlayerId);
+        serializer.SerializeValue(ref Score);
     }
 
-    // Esta función se llamará SOLA cada vez que Estamina.Value cambie
-    private void OnStaminaChanged(float previousValue, float newValue)
+    public bool Equals(PlayerScore other)
     {
-        staminaSlider.value = newValue;
-    }
-
-    // Efecto "Billboard" para que la UI siempre mire a la cámara
-    void LateUpdate()
-    {
-        if (mainCamera == null) return;
-
-        transform.LookAt(transform.position + mainCamera.transform.rotation * Vector3.forward,
-                         mainCamera.transform.rotation * Vector3.up);
-    }
-
-    // Buena práctica: desuscribirse cuando el objeto se destruye
-    void OnDestroy()
-    {
-        if (characterBase != null)
-        {
-            characterBase.Estamina.OnValueChanged -= OnStaminaChanged;
-        }
+        return PlayerId == other.PlayerId && Score == other.Score;
     }
 }

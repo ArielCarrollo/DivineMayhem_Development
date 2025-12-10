@@ -8,36 +8,58 @@ public class PlayerNicknameUI : NetworkBehaviour
     [SerializeField]
     private TextMeshProUGUI nicknameText;
 
-    // --- NUEVAS VARIABLES ---
+    // Aunque ya no mostremos los puntos aquí, necesitamos las variables
+    // para que la sincronización interna funcione si otros scripts la usan.
     public NetworkVariable<FixedString64Bytes> Nickname = new NetworkVariable<FixedString64Bytes>();
-    // Variable de red para almacenar los puntos del jugador. Por defecto inicia en 0.
     public NetworkVariable<int> Points = new NetworkVariable<int>(0);
 
     public override void OnNetworkSpawn()
     {
-        // Nos suscribimos a los cambios de ambas variables
+        // Suscribirse a cambios
         Nickname.OnValueChanged += HandleDisplayTextChanged;
-        Points.OnValueChanged += HandleDisplayTextChanged;
 
-        // Actualizamos el texto con los valores iniciales
+        // Configurar color y texto inicial
         UpdateDisplayText();
+        UpdateColor();
     }
 
-    // Un solo método para manejar el cambio de cualquiera de las dos variables
     private void HandleDisplayTextChanged(FixedString64Bytes previousValue, FixedString64Bytes newValue)
     {
         UpdateDisplayText();
     }
 
-    private void HandleDisplayTextChanged(int previousValue, int newValue)
-    {
-        UpdateDisplayText();
-    }
-
-    // El método que construye el texto final
     private void UpdateDisplayText()
     {
-        // Mostramos los puntos acumulados en lugar del nivel
-        nicknameText.text = $"[Pts {Points.Value}] {Nickname.Value}";
+        if (nicknameText != null)
+        {
+            // Solo mostramos el nombre, limpio.
+            nicknameText.text = Nickname.Value.ToString();
+        }
+    }
+
+    private void UpdateColor()
+    {
+        if (nicknameText != null)
+        {
+            // El color depende del ClientId (OwnerClientId)
+            nicknameText.color = GetColor((int)OwnerClientId);
+        }
+    }
+
+    private Color GetColor(int index)
+    {
+        switch (index % 4)
+        {
+            case 0: return Color.blue;
+            case 1: return Color.red;
+            case 2: return Color.green;
+            case 3: return Color.yellow;
+            default: return Color.white;
+        }
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        Nickname.OnValueChanged -= HandleDisplayTextChanged;
     }
 }

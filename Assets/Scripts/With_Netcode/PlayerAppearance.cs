@@ -1,62 +1,47 @@
 using UnityEngine;
-using Unity.Netcode;
 
-public class PlayerAppearance : NetworkBehaviour
+public class PlayerAppearance : MonoBehaviour
 {
-    [SerializeField] private Transform bodiesParent;
-    [SerializeField] private Transform eyesParent;
-    [SerializeField] private Transform glovesParent;
+    [Header("Modelos Visuales")]
+    [Tooltip("Arrastra aquí los 4 objetos visuales hijos. Orden: 0:Inca, 1:Sinto, 2:Greek, 3:Norse")]
+    [SerializeField] private GameObject[] pantheonModels;
 
-    public readonly NetworkVariable<PlayerData> PlayerCustomData = new NetworkVariable<PlayerData>();
-
-    // --- CORRECCIÓN: Métodos públicos para obtener los contadores ---
-    public int GetBodyCount() => bodiesParent != null ? bodiesParent.childCount : 0;
-    public int GetEyesCount() => eyesParent != null ? eyesParent.childCount : 0;
-    public int GetGlovesCount() => glovesParent != null ? glovesParent.childCount : 0;
-    // --- Fin de la Corrección ---
-
-    public override void OnNetworkSpawn()
+    private void Start()
     {
-        PlayerCustomData.OnValueChanged += OnDataChanged;
-        // Al aparecer, aplicamos la apariencia con los datos que ya tiene la variable de red.
-        if (PlayerCustomData.Value.Username.Length > 0) // Comprobar si el struct tiene datos válidos
-        {
-            ApplyAppearance(PlayerCustomData.Value);
-        }
-    }
-
-    public override void OnNetworkDespawn()
-    {
-        PlayerCustomData.OnValueChanged -= OnDataChanged;
-    }
-
-    private void OnDataChanged(PlayerData previousValue, PlayerData newValue)
-    {
-        ApplyAppearance(newValue);
+        // Seguridad: al iniciar, mostrar el primero por defecto si no se ha llamado a nada
+        // Opcional: UpdateVisuals(0); 
     }
 
     public void ApplyAppearance(PlayerData data)
     {
-        SetPartActive(bodiesParent, data.BodyIndex);
-        SetPartActive(eyesParent, data.EyesIndex);
-        SetPartActive(glovesParent, data.GlovesIndex);
+        UpdateVisuals(data.PantheonIndex);
     }
 
-    private void SetPartActive(Transform parent, int index)
+    public void UpdateVisuals(int index)
     {
-        if (parent == null) return;
+        if (pantheonModels == null || pantheonModels.Length == 0) return;
 
-        // Asegurarse de que el índice esté dentro de los límites
-        if (index < 0 || index >= parent.childCount)
-        {
-            // Si el índice es inválido, desactivar todo o activar el primero (default)
-            index = 0;
-            if (parent.childCount == 0) return; // No hay hijos, no hacer nada
-        }
+        // Protección de índice
+        if (index < 0) index = 0;
+        if (index >= pantheonModels.Length) index = 0;
 
-        for (int i = 0; i < parent.childCount; i++)
+        for (int i = 0; i < pantheonModels.Length; i++)
         {
-            parent.GetChild(i).gameObject.SetActive(i == index);
+            if (pantheonModels[i] != null)
+            {
+                // Activa solo el que coincide con el índice
+                bool isActive = (i == index);
+                pantheonModels[i].SetActive(isActive);
+
+                // Reiniciar animación si se activa (opcional, para que empiece el Idle desde el principio)
+                /* if (isActive) {
+                    var anim = pantheonModels[i].GetComponent<Animator>();
+                    if(anim) anim.Play("Idle", 0, 0f);
+                }
+                */
+            }
         }
     }
+
+    public int GetPantheonCount() => pantheonModels != null ? pantheonModels.Length : 0;
 }
